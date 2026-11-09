@@ -1,0 +1,56 @@
+[workspace]
+resolver = "2"
+exclude = ["vendor/ash"]
+
+# Only crates that exist and build are members. The planned crates are listed in
+# docs/ARCHITECTURE.md §1 and tracked in docs/ROADMAP.md; adding an empty crate here would
+# make `cargo build --workspace` a lie.
+members = [
+    "crates/hematite-ir",
+    "crates/hematite-config",
+    "crates/hematite-fixed-function",
+    "crates/hematite-shader-cache",
+    "crates/hematite-vk-backend",
+    "crates/hematite-plugin",
+    "crates/hematite-testharness",
+    "xtask",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+# Minimum compiler version actually checked with the native verification suite.
+rust-version = "1.85"
+license = "MIT"
+authors = ["Hematite contributors"]
+repository = "https://github.com/entitybrian69-bit/Hematite-renderer"
+
+[workspace.dependencies]
+ash = { path = "vendor/ash", default-features = false, features = ["std", "debug"] }
+hematite-vk-backend = { path = "crates/hematite-vk-backend" }
+hematite-plugin = { path = "crates/hematite-plugin" }
+hematite-ir = { path = "crates/hematite-ir" }
+hematite-config = { path = "crates/hematite-config" }
+hematite-fixed-function = { path = "crates/hematite-fixed-function" }
+hematite-shader-cache = { path = "crates/hematite-shader-cache" }
+
+# Release: smallest and fastest. `panic = "abort"` is not optional here: an unwind that
+# reached LWJGL across the FFI boundary would be undefined behaviour.
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = "symbols"
+
+# Profiling keeps symbols but stays optimised, so profiles are of the real thing.
+[profile.profiling]
+inherits = "release"
+debug = 2
+strip = "none"
+lto = "thin"
+
+# Development libraries abort across FFI. Cargo test harnesses use unwinding independently.
+[profile.dev]
+panic = "abort"
+

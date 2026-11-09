@@ -1,0 +1,924 @@
+# Hematite GL/EGL export table.
+#
+# This file is the single source of truth for the C ABI Hematite exposes.
+# `xtask gen-abi` turns it into `crates/hematite-gl-frontend/src/gen/abi.rs`.
+#
+# Format: one entry per line, tab-separated:
+#   <name>  <return type>  <param types, comma separated>  <canvas class>  <since version>
+#
+# `return type` and `param types` use the C spellings from the Khronos headers
+# (GLenum, GLuint, GLsizei, GLsizeiptr, GLintptr, GLboolean, ...). The generator maps
+# these to fixed-width Rust types, which is what makes the table auditable: there is
+# exactly one line to check against glcorearb.h / eglext.h for each function.
+#
+# Canvas classes tell the frontend what the entry point does before the backend sees it:
+#   state     - mutates tracked GL state only; no backend command emitted
+#   resource  - creates/destroys a named object
+#   draw      - records geometry
+#   query     - reads state back (synchronous; see ARCHITECTURE.md §3)
+#   sync      - forces the command ring to be drained
+#   unsupported - exported, logs once, raises GL_INVALID_OPERATION
+#
+# `since` is the GL/EGL version that introduced the function; used for GL_VERSION
+# dependent behaviour and for test coverage targets.
+
+# --- EGL 1.4 / 1.5 (the renderer IS the EGL implementation) ---
+
+eglGetDisplay	EGLDisplay	EGLNativeDisplayType	target	1.4
+eglGetPlatformDisplay	EGLDisplay	EGLenum,void*,const EGLAttrib*	target	1.5
+eglGetPlatformDisplayEXT	EGLDisplay	EGLenum,void*,const EGLint*	target	1.5
+eglInitialize	EGLBoolean	EGLDisplay,EGLint*,EGLint*	target	1.4
+eglTerminate	EGLBoolean	EGLDisplay	target	1.4
+eglQueryString	const char*	EGLDisplay,EGLint	query	1.4
+eglQueryDisplayAttribEXT	EGLBoolean	EGLDisplay,EGLint,EGLAttrib*	query	1.5
+eglChooseConfig	EGLBoolean	EGLDisplay,const EGLint*,EGLConfig*,EGLint,EGLint*	target	1.4
+eglGetConfigs	EGLBoolean	EGLDisplay,EGLConfig*,EGLint,EGLint*	target	1.4
+eglGetConfigAttrib	EGLBoolean	EGLDisplay,EGLConfig,EGLint,EGLint*	query	1.4
+eglCreateWindowSurface	EGLSurface	EGLDisplay,EGLConfig,EGLNativeWindowType,const EGLint*	target	1.4
+eglCreatePbufferSurface	EGLSurface	EGLDisplay,EGLConfig,const EGLint*	target	1.4
+eglCreatePixmapSurface	EGLSurface	EGLDisplay,EGLConfig,EGLNativePixmapType,const EGLint*	target	1.4
+eglDestroySurface	EGLBoolean	EGLDisplay,EGLSurface	target	1.4
+eglQuerySurface	EGLBoolean	EGLDisplay,EGLSurface,EGLint,EGLint*	query	1.4
+eglBindAPI	EGLBoolean	EGLenum	target	1.4
+eglQueryAPI	EGLenum	void	target	1.4
+eglWaitClient	EGLBoolean	void	sync	1.4
+eglReleaseThread	EGLBoolean	void	target	1.4
+eglCreateContext	EGLContext	EGLDisplay,EGLConfig,EGLContext,const EGLint*	target	1.4
+eglDestroyContext	EGLBoolean	EGLDisplay,EGLContext	target	1.4
+eglMakeCurrent	EGLBoolean	EGLDisplay,EGLSurface,EGLSurface,EGLContext	target	1.4
+eglGetCurrentContext	EGLContext	void	query	1.4
+eglGetCurrentSurface	EGLSurface	EGLint	query	1.4
+eglGetCurrentDisplay	EGLDisplay	void	query	1.4
+eglQueryContext	EGLBoolean	EGLDisplay,EGLContext,EGLint,EGLint*	query	1.4
+eglWaitGL	EGLBoolean	void	sync	1.4
+eglWaitNative	EGLBoolean	EGLint	sync	1.4
+eglSwapBuffers	EGLBoolean	EGLDisplay,EGLSurface	sync	1.4
+eglSwapInterval	EGLBoolean	EGLDisplay,EGLint	target	1.4
+eglCopyBuffers	EGLBoolean	EGLDisplay,EGLSurface,EGLNativePixmapType	sync	1.4
+eglGetError	EGLint	void	query	1.4
+eglGetProcAddress	void*	const char*	target	1.4
+
+# --- EGL extensions the launchers and Minecraft rely on ---
+
+eglCreateImageKHR	EGLImageKHR	EGLDisplay,EGLContext,EGLenum,EGLClientBuffer,const EGLint*	target	ext
+eglDestroyImageKHR	EGLBoolean	EGLDisplay,EGLImageKHR	target	ext
+eglCreateSyncKHR	EGLSyncKHR	EGLDisplay,EGLenum,const EGLint*	target	ext
+eglDestroySyncKHR	EGLBoolean	EGLDisplay,EGLSyncKHR	target	ext
+eglClientWaitSyncKHR	EGLint	EGLDisplay,EGLSyncKHR,EGLint,EGLTimeKHR	sync	ext
+eglGetSyncAttribKHR	EGLBoolean	EGLDisplay,EGLSyncKHR,EGLint,EGLint*	query	ext
+eglCreateSync	EGLSync	EGLDisplay,EGLenum,const EGLAttrib*	target	1.5
+eglDestroySync	EGLBoolean	EGLDisplay,EGLSync	target	1.5
+eglClientWaitSync	EGLint	EGLDisplay,EGLSync,EGLint,EGLTime	sync	1.5
+eglWaitSync	EGLBoolean	EGLDisplay,EGLSync,EGLint	sync	1.5
+eglGetSyncAttrib	EGLBoolean	EGLDisplay,EGLSync,EGLint,EGLAttrib*	query	1.5
+eglSwapBuffersWithDamageKHR	EGLBoolean	EGLDisplay,EGLSurface,const EGLint*,EGLint	sync	ext
+eglPresentationTimeKHR	EGLBoolean	EGLDisplay,EGLSurface,const EGLnsecsKHR*	target	ext
+
+# --- GL 1.0 / 1.1: the fixed-function core (LWJGL 2 needs every one of these as a symbol) ---
+
+glAccum	void	GLenum,GLfloat	unsupported	1.0
+glAlphaFunc	void	GLenum,GLclampf	state	1.0
+glAreTexturesResident	GLboolean	GLsizei,const GLuint*,GLboolean*	query	1.1
+glArrayElement	void	GLint	draw	1.1
+glBegin	void	GLenum	draw	1.0
+glBindTexture	void	GLenum,GLuint	state	1.1
+glBitmap	void	GLsizei,GLsizei,GLfloat,GLfloat,GLfloat,GLfloat,const GLubyte*	draw	1.0
+glBlendFunc	void	GLenum,GLenum	state	1.0
+glCallList	void	GLuint	draw	1.0
+glCallLists	void	GLsizei,GLenum,const void*	draw	1.0
+glClear	void	GLbitfield	draw	1.0
+glClearAccum	void	GLfloat,GLfloat,GLfloat,GLfloat	state	1.0
+glClearColor	void	GLclampf,GLclampf,GLclampf,GLclampf	state	1.0
+glClearDepth	void	GLclampd	state	1.0
+glClearIndex	void	GLfloat	state	1.0
+glClearStencil	void	GLint	state	1.0
+glClipPlane	void	GLenum,const GLdouble*	state	1.0
+glColor3b	void	GLbyte,GLbyte,GLbyte	state	1.0
+glColor3d	void	GLdouble,GLdouble,GLdouble	state	1.0
+glColor3f	void	GLfloat,GLfloat,GLfloat	state	1.0
+glColor3fv	void	const GLfloat*	state	1.0
+glColor3ub	void	GLubyte,GLubyte,GLubyte	state	1.0
+glColor4b	void	GLbyte,GLbyte,GLbyte,GLbyte	state	1.0
+glColor4d	void	GLdouble,GLdouble,GLdouble,GLdouble	state	1.0
+glColor4f	void	GLfloat,GLfloat,GLfloat,GLfloat	state	1.0
+glColor4fv	void	const GLfloat*	state	1.0
+glColor4ub	void	GLubyte,GLubyte,GLubyte,GLubyte	state	1.0
+glColorMask	void	GLboolean,GLboolean,GLboolean,GLboolean	state	1.0
+glColorMaterial	void	GLenum,GLenum	state	1.0
+glColorPointer	void	GLint,GLenum,GLsizei,const void*	state	1.1
+glCopyPixels	void	GLint,GLint,GLsizei,GLsizei,GLenum	draw	1.0
+glCopyTexImage1D	void	GLenum,GLint,GLenum,GLint,GLint,GLsizei,GLint	sync	1.1
+glCopyTexImage2D	void	GLenum,GLint,GLenum,GLint,GLint,GLsizei,GLsizei,GLint	sync	1.1
+glCopyTexSubImage1D	void	GLenum,GLint,GLint,GLint,GLint,GLsizei	sync	1.1
+glCopyTexSubImage2D	void	GLenum,GLint,GLint,GLint,GLint,GLint,GLsizei,GLsizei	sync	1.1
+glCullFace	void	GLenum	state	1.0
+glDeleteLists	void	GLuint,GLsizei	resource	1.0
+glDeleteTextures	void	GLsizei,const GLuint*	resource	1.1
+glDepthFunc	void	GLenum	state	1.0
+glDepthMask	void	GLboolean	state	1.0
+glDepthRange	void	GLclampd,GLclampd	state	1.0
+glDisable	void	GLenum	state	1.0
+glDisableClientState	void	GLenum	state	1.1
+glDrawArrays	void	GLenum,GLint,GLsizei	draw	1.1
+glDrawBuffer	void	GLenum	state	1.0
+glDrawElements	void	GLenum,GLsizei,GLenum,const void*	draw	1.1
+glDrawPixels	void	GLsizei,GLsizei,GLenum,GLenum,const void*	draw	1.0
+glEdgeFlag	void	GLboolean	state	1.0
+glEdgeFlagPointer	void	GLsizei,const void*	state	1.1
+glEnable	void	GLenum	state	1.0
+glEnableClientState	void	GLenum	state	1.1
+glEnd	void	void	draw	1.0
+glEndList	void	void	resource	1.0
+glEvalCoord1f	void	GLfloat	draw	1.0
+glEvalMesh1	void	GLenum,GLint,GLint	draw	1.0
+glEvalMesh2	void	GLenum,GLint,GLint,GLint,GLint	draw	1.0
+glEvalPoint1	void	GLint	draw	1.0
+glEvalPoint2	void	GLint,GLint	draw	1.0
+glFeedbackBuffer	void	GLsizei,GLenum,GLfloat*	query	1.0
+glFinish	void	void	sync	1.0
+glFlush	void	void	sync	1.0
+glFogf	void	GLenum,GLfloat	state	1.0
+glFogfv	void	GLenum,const GLfloat*	state	1.0
+glFogi	void	GLenum,GLint	state	1.0
+glFogiv	void	GLenum,const GLint*	state	1.0
+glFrontFace	void	GLenum	state	1.0
+glFrustum	void	GLdouble,GLdouble,GLdouble,GLdouble,GLdouble,GLdouble	state	1.0
+glGenLists	GLuint	GLsizei	resource	1.0
+glGenTextures	void	GLsizei,GLuint*	resource	1.1
+glGetBooleanv	void	GLenum,GLboolean*	query	1.0
+glGetClipPlane	void	GLenum,GLdouble*	query	1.0
+glGetDoublev	void	GLenum,GLdouble*	query	1.0
+glGetError	GLenum	void	query	1.0
+glGetFloatv	void	GLenum,GLfloat*	query	1.0
+glGetIntegerv	void	GLenum,GLint*	query	1.0
+glGetLightfv	void	GLenum,GLenum,GLfloat*	query	1.0
+glGetLightiv	void	GLenum,GLenum,GLint*	query	1.0
+glGetMaterialfv	void	GLenum,GLenum,GLfloat*	query	1.0
+glGetMaterialiv	void	GLenum,GLenum,GLint*	query	1.0
+glGetPixelMapfv	void	GLenum,GLfloat*	query	1.0
+glGetPointerv	void	GLenum,void**	query	1.1
+glGetPolygonStipple	void	GLubyte*	query	1.0
+glGetString	const GLubyte*	GLenum	query	1.0
+glGetTexEnvfv	void	GLenum,GLenum,GLfloat*	query	1.0
+glGetTexEnviv	void	GLenum,GLenum,GLint*	query	1.0
+glGetTexGenfv	void	GLenum,GLenum,GLfloat*	query	1.0
+glGetTexGeniv	void	GLenum,GLenum,GLint*	query	1.0
+glGetTexImage	void	GLenum,GLint,GLenum,GLenum,void*	sync	1.0
+glGetTexLevelParameterfv	void	GLenum,GLint,GLenum,GLfloat*	query	1.0
+glGetTexLevelParameteriv	void	GLenum,GLint,GLenum,GLint*	query	1.0
+glGetTexParameterfv	void	GLenum,GLenum,GLfloat*	query	1.0
+glGetTexParameteriv	void	GLenum,GLenum,GLint*	query	1.0
+glHint	void	GLenum,GLenum	state	1.0
+glIndexf	void	GLfloat	state	1.0
+glIndexPointer	void	GLenum,GLsizei,const void*	state	1.1
+glInitNames	void	void	state	1.0
+glInterleavedArrays	void	GLenum,GLsizei,const void*	state	1.1
+glIsEnabled	GLboolean	GLenum	query	1.0
+glIsList	GLboolean	GLuint	query	1.0
+glIsTexture	GLboolean	GLuint	query	1.1
+glLightf	void	GLenum,GLenum,GLfloat	state	1.0
+glLightfv	void	GLenum,GLenum,const GLfloat*	state	1.0
+glLighti	void	GLenum,GLenum,GLint	state	1.0
+glLightiv	void	GLenum,GLenum,const GLint*	state	1.0
+glLightModelf	void	GLenum,GLfloat	state	1.0
+glLightModelfv	void	GLenum,const GLfloat*	state	1.0
+glLineStipple	void	GLint,GLushort	state	1.0
+glLineWidth	void	GLfloat	state	1.0
+glListBase	void	GLuint	state	1.0
+glLoadIdentity	void	void	state	1.0
+glLoadMatrixd	void	const GLdouble*	state	1.0
+glLoadMatrixf	void	const GLfloat*	state	1.0
+glLoadName	void	GLuint	state	1.0
+glLogicOp	void	GLenum	state	1.0
+glMap1f	void	GLenum,GLfloat,GLfloat,GLint,GLint,const GLfloat*	unsupported	1.0
+glMap2f	void	GLenum,GLfloat,GLfloat,GLint,GLint,GLfloat,GLfloat,GLint,GLint,const GLfloat*	unsupported	1.0
+glMapGrid1f	void	GLint,GLfloat,GLfloat	unsupported	1.0
+glMapGrid2f	void	GLint,GLfloat,GLfloat,GLint,GLfloat,GLfloat	unsupported	1.0
+glMaterialf	void	GLenum,GLenum,GLfloat	state	1.0
+glMaterialfv	void	GLenum,GLenum,const GLfloat*	state	1.0
+glMateriali	void	GLenum,GLenum,GLint	state	1.0
+glMaterialiv	void	GLenum,GLenum,const GLint*	state	1.0
+glMatrixMode	void	GLenum	state	1.0
+glMultMatrixd	void	const GLdouble*	state	1.0
+glMultMatrixf	void	const GLfloat*	state	1.0
+glNewList	void	GLuint,GLenum	resource	1.0
+glNormal3b	void	GLbyte,GLbyte,GLbyte	state	1.0
+glNormal3d	void	GLdouble,GLdouble,GLdouble	state	1.0
+glNormal3f	void	GLfloat,GLfloat,GLfloat	state	1.0
+glNormal3fv	void	const GLfloat*	state	1.0
+glNormalPointer	void	GLenum,GLsizei,const void*	state	1.1
+glOrtho	void	GLdouble,GLdouble,GLdouble,GLdouble,GLdouble,GLdouble	state	1.0
+glPassThrough	void	GLfloat	unsupported	1.0
+glPixelMapfv	void	GLenum,GLsizei,const GLfloat*	unsupported	1.0
+glPixelStoref	void	GLenum,GLfloat	state	1.0
+glPixelStorei	void	GLenum,GLint	state	1.0
+glPixelTransferf	void	GLenum,GLfloat	unsupported	1.0
+glPixelZoom	void	GLfloat,GLfloat	unsupported	1.0
+glPointSize	void	GLfloat	state	1.0
+glPolygonMode	void	GLenum,GLenum	state	1.0
+glPolygonOffset	void	GLfloat,GLfloat	state	1.0
+glPolygonStipple	void	const GLubyte*	state	1.0
+glPopAttrib	void	void	state	1.0
+glPopClientAttrib	void	void	state	1.1
+glPopMatrix	void	void	state	1.0
+glPopName	void	void	state	1.0
+glPrioritizeTextures	void	GLsizei,const GLuint*,const GLclampf*	state	1.1
+glPushAttrib	void	GLbitfield	state	1.0
+glPushClientAttrib	void	GLbitfield	state	1.1
+glPushMatrix	void	void	state	1.0
+glPushName	void	GLuint	state	1.0
+glRasterPos2f	void	GLfloat,GLfloat	state	1.0
+glRasterPos3f	void	GLfloat,GLfloat,GLfloat	state	1.0
+glReadBuffer	void	GLenum	state	1.0
+glReadPixels	void	GLint,GLint,GLsizei,GLsizei,GLenum,GLenum,void*	sync	1.0
+glRectf	void	GLfloat,GLfloat,GLfloat,GLfloat	draw	1.0
+glRecti	void	GLint,GLint,GLint,GLint	draw	1.0
+glRenderMode	GLint	GLenum	state	1.0
+glRotated	void	GLdouble,GLdouble,GLdouble,GLdouble	state	1.0
+glRotatef	void	GLfloat,GLfloat,GLfloat,GLfloat	state	1.0
+glScaled	void	GLdouble,GLdouble,GLdouble	state	1.0
+glScalef	void	GLfloat,GLfloat,GLfloat	state	1.0
+glScissor	void	GLint,GLint,GLsizei,GLsizei	state	1.0
+glSelectBuffer	void	GLsizei,GLuint*	query	1.0
+glShadeModel	void	GLenum	state	1.0
+glStencilFunc	void	GLenum,GLint,GLuint	state	1.0
+glStencilMask	void	GLuint	state	1.0
+glStencilOp	void	GLenum,GLenum,GLenum	state	1.0
+glTexCoord2f	void	GLfloat,GLfloat	state	1.0
+glTexCoord2fv	void	const GLfloat*	state	1.0
+glTexCoord3f	void	GLfloat,GLfloat,GLfloat	state	1.0
+glTexCoord4f	void	GLfloat,GLfloat,GLfloat,GLfloat	state	1.0
+glTexCoordPointer	void	GLint,GLenum,GLsizei,const void*	state	1.1
+glTexEnvf	void	GLenum,GLenum,GLfloat	state	1.0
+glTexEnvfv	void	GLenum,GLenum,const GLfloat*	state	1.0
+glTexEnvi	void	GLenum,GLenum,GLint	state	1.0
+glTexEnviv	void	GLenum,GLenum,const GLint*	state	1.0
+glTexGend	void	GLenum,GLenum,GLdouble	state	1.0
+glTexGenf	void	GLenum,GLenum,GLfloat	state	1.0
+glTexGenfv	void	GLenum,GLenum,const GLfloat*	state	1.0
+glTexGeni	void	GLenum,GLenum,GLint	state	1.0
+glTexGeniv	void	GLenum,GLenum,const GLint*	state	1.0
+glTexImage1D	void	GLenum,GLint,GLint,GLsizei,GLint,GLenum,GLenum,const void*	state	1.0
+glTexImage2D	void	GLenum,GLint,GLint,GLsizei,GLsizei,GLint,GLenum,GLenum,const void*	state	1.0
+glTexParameterf	void	GLenum,GLenum,GLfloat	state	1.0
+glTexParameterfv	void	GLenum,GLenum,const GLfloat*	state	1.0
+glTexParameteri	void	GLenum,GLenum,GLint	state	1.0
+glTexParameteriv	void	GLenum,GLenum,const GLint*	state	1.0
+glTexSubImage1D	void	GLenum,GLint,GLint,GLsizei,GLenum,GLenum,const void*	state	1.1
+glTexSubImage2D	void	GLenum,GLint,GLint,GLint,GLsizei,GLsizei,GLenum,GLenum,const void*	state	1.1
+glTranslated	void	GLdouble,GLdouble,GLdouble	state	1.0
+glTranslatef	void	GLfloat,GLfloat,GLfloat	state	1.0
+glVertex2f	void	GLfloat,GLfloat	draw	1.0
+glVertex2fv	void	const GLfloat*	draw	1.0
+glVertex3f	void	GLfloat,GLfloat,GLfloat	draw	1.0
+glVertex3fv	void	const GLfloat*	draw	1.0
+glVertex4f	void	GLfloat,GLfloat,GLfloat,GLfloat	draw	1.0
+glVertexPointer	void	GLint,GLenum,GLsizei,const void*	state	1.1
+glViewport	void	GLint,GLint,GLsizei,GLsizei	state	1.0
+
+# --- GL 1.2 / 1.3 / 1.4 / 1.5 ---
+
+glDrawRangeElements	void	GLenum,GLuint,GLuint,GLsizei,GLenum,const void*	draw	1.2
+glTexImage3D	void	GLenum,GLint,GLint,GLsizei,GLsizei,GLsizei,GLint,GLenum,GLenum,const void*	state	1.2
+glTexSubImage3D	void	GLenum,GLint,GLint,GLint,GLint,GLsizei,GLsizei,GLsizei,GLenum,GLenum,const void*	state	1.2
+glCopyTexSubImage3D	void	GLenum,GLint,GLint,GLint,GLint,GLint,GLint,GLsizei,GLsizei	sync	1.2
+glActiveTexture	void	GLenum	state	1.3
+glSampleCoverage	void	GLclampf,GLboolean	state	1.3
+glCompressedTexImage3D	void	GLenum,GLint,GLenum,GLsizei,GLsizei,GLsizei,GLint,GLsizei,const void*	state	1.3
+glCompressedTexImage2D	void	GLenum,GLint,GLenum,GLsizei,GLsizei,GLint,GLsizei,const void*	state	1.3
+glCompressedTexImage1D	void	GLenum,GLint,GLenum,GLsizei,GLint,GLsizei,const void*	state	1.3
+glCompressedTexSubImage3D	void	GLenum,GLint,GLint,GLint,GLint,GLsizei,GLsizei,GLsizei,GLenum,GLsizei,const void*	state	1.3
+glCompressedTexSubImage2D	void	GLenum,GLint,GLint,GLint,GLsizei,GLsizei,GLenum,GLsizei,const void*	state	1.3
+glCompressedTexSubImage1D	void	GLenum,GLint,GLint,GLsizei,GLenum,GLsizei,const void*	state	1.3
+glGetCompressedTexImage	void	GLenum,GLint,void*	sync	1.3
+glBlendFuncSeparate	void	GLenum,GLenum,GLenum,GLenum	state	1.4
+glMultiDrawArrays	void	GLenum,const GLint*,const GLsizei*,GLsizei	draw	1.4
+glMultiDrawElements	void	GLenum,const GLsizei*,GLenum,const void* const*,GLsizei	draw	1.4
+glPointParameterf	void	GLenum,GLfloat	state	1.4
+glPointParameterfv	void	GLenum,const GLfloat*	state	1.4
+glPointParameteri	void	GLenum,GLint	state	1.4
+glPointParameteriv	void	GLenum,const GLint*	state	1.4
+glBlendColor	void	GLclampf,GLclampf,GLclampf,GLclampf	state	1.4
+glBlendEquation	void	GLenum	state	1.4
+glGenQueries	void	GLsizei,GLuint*	resource	1.5
+glDeleteQueries	void	GLsizei,const GLuint*	resource	1.5
+glIsQuery	GLboolean	GLuint	query	1.5
+glBeginQuery	void	GLenum,GLuint	state	1.5
+glEndQuery	void	GLenum	state	1.5
+glGetQueryiv	void	GLenum,GLenum,GLint*	query	1.5
+glGetQueryObjectiv	void	GLuint,GLenum,GLint*	sync	1.5
+glGetQueryObjectuiv	void	GLuint,GLenum,GLuint*	sync	1.5
+glBindBuffer	void	GLenum,GLuint	state	1.5
+glDeleteBuffers	void	GLsizei,const GLuint*	resource	1.5
+glGenBuffers	void	GLsizei,GLuint*	resource	1.5
+glIsBuffer	GLboolean	GLuint	query	1.5
+glBufferData	void	GLenum,GLsizeiptr,const void*,GLenum	state	1.5
+glBufferSubData	void	GLenum,GLintptr,GLsizeiptr,const void*	state	1.5
+glGetBufferSubData	void	GLenum,GLintptr,GLsizeiptr,void*	sync	1.5
+glMapBuffer	void*	GLenum,GLenum	sync	1.5
+glUnmapBuffer	GLboolean	GLenum	sync	1.5
+glGetBufferParameteriv	void	GLenum,GLenum,GLint*	query	1.5
+glGetBufferPointerv	void	GLenum,GLenum,void**	query	1.5
+
+# --- GL 2.0: the shader era a lot of Minecraft mods assume ---
+
+glBlendEquationSeparate	void	GLenum,GLenum	state	2.0
+glDrawBuffers	void	GLsizei,const GLenum*	state	2.0
+glStencilOpSeparate	void	GLenum,GLenum,GLenum,GLenum	state	2.0
+glStencilFuncSeparate	void	GLenum,GLenum,GLint,GLuint	state	2.0
+glStencilMaskSeparate	void	GLenum,GLuint	state	2.0
+glAttachShader	void	GLuint,GLuint	state	2.0
+glBindAttribLocation	void	GLuint,GLuint,const char*	state	2.0
+glCompileShader	void	GLuint	resource	2.0
+glCreateProgram	GLuint	void	resource	2.0
+glCreateShader	GLuint	GLenum	resource	2.0
+glDeleteProgram	void	GLuint	resource	2.0
+glDeleteShader	void	GLuint	resource	2.0
+glDetachShader	void	GLuint,GLuint	state	2.0
+glDisableVertexAttribArray	void	GLuint	state	2.0
+glEnableVertexAttribArray	void	GLuint	state	2.0
+glGetActiveAttrib	void	GLuint,GLuint,GLsizei,GLsizei*,GLint*,GLenum*,char*	query	2.0
+glGetActiveUniform	void	GLuint,GLuint,GLsizei,GLsizei*,GLint*,GLenum*,char*	query	2.0
+glGetAttachedShaders	void	GLuint,GLsizei,GLsizei*,GLuint*	query	2.0
+glGetAttribLocation	GLint	GLuint,const char*	query	2.0
+glGetProgramiv	void	GLuint,GLenum,GLint*	query	2.0
+glGetProgramInfoLog	void	GLuint,GLsizei,GLsizei*,char*	query	2.0
+glGetShaderiv	void	GLuint,GLenum,GLint*	query	2.0
+glGetShaderInfoLog	void	GLuint,GLsizei,GLsizei*,char*	query	2.0
+glGetShaderSource	void	GLuint,GLsizei,GLsizei*,char*	query	2.0
+glGetUniformLocation	GLint	GLuint,const char*	query	2.0
+glGetUniformfv	void	GLuint,GLint,GLfloat*	query	2.0
+glGetUniformiv	void	GLuint,GLint,GLint*	query	2.0
+glGetVertexAttribdv	void	GLuint,GLenum,GLdouble*	query	2.0
+glGetVertexAttribfv	void	GLuint,GLenum,GLfloat*	query	2.0
+glGetVertexAttribiv	void	GLuint,GLenum,GLint*	query	2.0
+glGetVertexAttribPointerv	void	GLuint,GLenum,void**	query	2.0
+glIsProgram	GLboolean	GLuint	query	2.0
+glIsShader	GLboolean	GLuint	query	2.0
+glLinkProgram	void	GLuint	resource	2.0
+glShaderSource	void	GLuint,GLsizei,const char* const*,const GLint*	resource	2.0
+glUseProgram	void	GLuint	state	2.0
+glUniform1f	void	GLint,GLfloat	state	2.0
+glUniform1fv	void	GLint,GLsizei,const GLfloat*	state	2.0
+glUniform1i	void	GLint,GLint	state	2.0
+glUniform1iv	void	GLint,GLsizei,const GLint*	state	2.0
+glUniform2f	void	GLint,GLfloat,GLfloat	state	2.0
+glUniform2fv	void	GLint,GLsizei,const GLfloat*	state	2.0
+glUniform2i	void	GLint,GLint,GLint	state	2.0
+glUniform2iv	void	GLint,GLsizei,const GLint*	state	2.0
+glUniform3f	void	GLint,GLfloat,GLfloat,GLfloat	state	2.0
+glUniform3fv	void	GLint,GLsizei,const GLfloat*	state	2.0
+glUniform3i	void	GLint,GLint,GLint,GLint	state	2.0
+glUniform3iv	void	GLint,GLsizei,const GLint*	state	2.0
+glUniform4f	void	GLint,GLfloat,GLfloat,GLfloat,GLfloat	state	2.0
+glUniform4fv	void	GLint,GLsizei,const GLfloat*	state	2.0
+glUniform4i	void	GLint,GLint,GLint,GLint,GLint	state	2.0
+glUniform4iv	void	GLint,GLsizei,const GLint*	state	2.0
+glUniformMatrix2fv	void	GLint,GLsizei,GLboolean,const GLfloat*	state	2.0
+glUniformMatrix3fv	void	GLint,GLsizei,GLboolean,const GLfloat*	state	2.0
+glUniformMatrix4fv	void	GLint,GLsizei,GLboolean,const GLfloat*	state	2.0
+glValidateProgram	void	GLuint	resource	2.0
+glVertexAttrib1f	void	GLuint,GLfloat	state	2.0
+glVertexAttrib2f	void	GLuint,GLfloat,GLfloat	state	2.0
+glVertexAttrib3f	void	GLuint,GLfloat,GLfloat,GLfloat	state	2.0
+glVertexAttrib4f	void	GLuint,GLfloat,GLfloat,GLfloat,GLfloat	state	2.0
+glVertexAttribPointer	void	GLuint,GLint,GLenum,GLboolean,GLsizei,const void*	state	2.0
+
+# --- GL 3.0+ / 3.3: modern Minecraft, Sodium ---
+
+glBindFragDataLocation	void	GLuint,GLuint,const char*	state	3.0
+glBindRenderbuffer	void	GLenum,GLuint	state	3.0
+glBindVertexArray	void	GLuint	state	3.0
+glBlitFramebuffer	void	GLint,GLint,GLint,GLint,GLint,GLint,GLint,GLint,GLbitfield,GLenum	sync	3.0
+glCheckFramebufferStatus	GLenum	GLenum	query	3.0
+glClearBufferfi	void	GLenum,GLint,GLfloat,GLint	draw	3.0
+glClearBufferfv	void	GLenum,GLint,const GLfloat*	draw	3.0
+glClearBufferiv	void	GLenum,GLint,const GLint*	draw	3.0
+glClearBufferuiv	void	GLenum,GLint,const GLuint*	draw	3.0
+glDeleteFramebuffers	void	GLsizei,const GLuint*	resource	3.0
+glDeleteRenderbuffers	void	GLsizei,const GLuint*	resource	3.0
+glDeleteVertexArrays	void	GLsizei,const GLuint*	resource	3.0
+glFramebufferRenderbuffer	void	GLenum,GLenum,GLenum,GLuint	state	3.0
+glFramebufferTexture1D	void	GLenum,GLenum,GLenum,GLuint,GLint	state	3.0
+glFramebufferTexture2D	void	GLenum,GLenum,GLenum,GLuint,GLint	state	3.0
+glFramebufferTexture3D	void	GLenum,GLenum,GLenum,GLuint,GLint,GLint	state	3.0
+glFramebufferTextureLayer	void	GLenum,GLenum,GLuint,GLint,GLint	state	3.0
+glGenFramebuffers	void	GLsizei,GLuint*	resource	3.0
+glGenRenderbuffers	void	GLsizei,GLuint*	resource	3.0
+glGenVertexArrays	void	GLsizei,GLuint*	resource	3.0
+glGenerateMipmap	void	GLenum	state	3.0
+glGetFramebufferAttachmentParameteriv	void	GLenum,GLenum,GLenum,GLint*	query	3.0
+glGetRenderbufferParameteriv	void	GLenum,GLenum,GLint*	query	3.0
+glGetUniformuiv	void	GLuint,GLint,GLuint*	query	3.0
+glGetVertexAttribIiv	void	GLuint,GLenum,GLint*	query	3.0
+glGetVertexAttribIuiv	void	GLuint,GLenum,GLuint*	query	3.0
+glIsFramebuffer	GLboolean	GLuint	query	3.0
+glIsRenderbuffer	GLboolean	GLuint	query	3.0
+glIsVertexArray	GLboolean	GLuint	query	3.0
+glRenderbufferStorage	void	GLenum,GLenum,GLsizei,GLsizei	state	3.0
+glRenderbufferStorageMultisample	void	GLenum,GLsizei,GLenum,GLsizei,GLsizei	state	3.0
+glUniform1ui	void	GLint,GLuint	state	3.0
+glUniform1uiv	void	GLint,GLsizei,const GLuint*	state	3.0
+glUniform2ui	void	GLint,GLuint,GLuint	state	3.0
+glUniform3ui	void	GLint,GLuint,GLuint,GLuint	state	3.0
+glUniform4ui	void	GLint,GLuint,GLuint,GLuint,GLuint	state	3.0
+glVertexAttribI1i	void	GLuint,GLint	state	3.0
+glVertexAttribIPointer	void	GLuint,GLint,GLenum,GLsizei,const void*	state	3.0
+glVertexAttribDivisor	void	GLuint,GLuint	state	3.3
+glBindSampler	void	GLuint,GLuint	state	3.3
+glDeleteSamplers	void	GLsizei,const GLuint*	resource	3.3
+glGenSamplers	void	GLsizei,GLuint*	resource	3.3
+glIsSampler	GLboolean	GLuint	query	3.3
+glSamplerParameterf	void	GLuint,GLenum,GLfloat	state	3.3
+glSamplerParameteri	void	GLuint,GLenum,GLint	state	3.3
+glGetSamplerParameterfv	void	GLuint,GLenum,GLfloat*	query	3.3
+glGetSamplerParameteriv	void	GLuint,GLenum,GLint*	query	3.3
+glVertexAttribP1ui	void	GLuint,GLenum,GLboolean,GLuint	state	3.3
+glVertexAttribP4ui	void	GLuint,GLenum,GLboolean,GLuint	state	3.3
+glQueryCounter	void	GLuint,GLenum	state	3.3
+glGetQueryObjecti64v	void	GLuint,GLenum,GLint64*	sync	3.3
+glGetQueryObjectui64v	void	GLuint,GLenum,GLuint64*	sync	3.3
+
+# --- GL 4.0 / 4.1 ---
+
+glMinSampleShading	void	GLfloat	state	4.0
+glBlendEquationi	void	GLuint,GLenum	state	4.0
+glBlendEquationSeparatei	void	GLuint,GLenum,GLenum	state	4.0
+glBlendFunci	void	GLuint,GLenum,GLenum	state	4.0
+glBlendFuncSeparatei	void	GLuint,GLenum,GLenum,GLenum,GLenum	state	4.0
+glDrawArraysIndirect	void	GLenum,const void*	draw	4.0
+glDrawElementsIndirect	void	GLenum,GLenum,const void*	draw	4.0
+glUniform1d	void	GLint,GLdouble	state	4.0
+glUniformMatrix4dv	void	GLint,GLsizei,GLboolean,const GLdouble*	state	4.0
+glGetActiveSubroutineName	void	GLuint,GLenum,GLuint,GLsizei,GLsizei*,char*	query	4.0
+glGetProgramStageiv	void	GLuint,GLenum,GLenum,GLint*	query	4.0
+glPatchParameteri	void	GLenum,GLint	state	4.0
+glPatchParameterfv	void	GLenum,const GLfloat*	state	4.0
+glViewportArrayv	void	GLuint,GLsizei,const GLfloat*	state	4.1
+glScissorIndexed	void	GLuint,GLint,GLint,GLsizei,GLsizei	state	4.1
+glDepthRangeArrayv	void	GLuint,GLsizei,const GLdouble*	state	4.1
+glVertexAttribL1d	void	GLuint,GLdouble	state	4.1
+glGetProgramBinary	void	GLuint,GLsizei,GLsizei*,GLenum*,void*	sync	4.1
+glProgramBinary	void	GLuint,GLenum,const void*,GLsizei	resource	4.1
+glProgramParameteri	void	GLuint,GLenum,GLint	state	4.1
+
+# --- GL 4.2 / 4.3 / 4.4: Iris needs 4.3 ---
+
+glTexStorage1D	void	GLenum,GLsizei,GLenum,GLsizei	state	4.2
+glTexStorage2D	void	GLenum,GLsizei,GLenum,GLsizei,GLsizei	state	4.2
+glTexStorage3D	void	GLenum,GLsizei,GLenum,GLsizei,GLsizei,GLsizei	state	4.2
+glBindImageTexture	void	GLuint,GLuint,GLint,GLboolean,GLint,GLenum,GLenum	state	4.2
+glDrawArraysInstancedBaseInstance	void	GLenum,GLint,GLsizei,GLsizei,GLuint	draw	4.2
+glDrawElementsInstancedBaseVertexBaseInstance	void	GLenum,GLsizei,GLenum,const void*,GLsizei,GLint,GLuint	draw	4.2
+glGetInternalformativ	void	GLenum,GLenum,GLenum,GLsizei,GLint*	query	4.2
+glMemoryBarrier	void	GLbitfield	state	4.2
+glTexStorage2DMultisample	void	GLenum,GLsizei,GLenum,GLsizei,GLsizei,GLboolean	state	4.3
+glBindVertexBuffer	void	GLuint,GLuint,GLintptr,GLsizei	state	4.3
+glVertexAttribFormat	void	GLuint,GLint,GLenum,GLboolean,GLuint	state	4.3
+glVertexAttribBinding	void	GLuint,GLuint	state	4.3
+glVertexBindingDivisor	void	GLuint,GLuint	state	4.3
+glDispatchCompute	void	GLuint,GLuint,GLuint	draw	4.3
+glDispatchComputeIndirect	void	GLintptr	draw	4.3
+glCopyImageSubData	void	GLuint,GLenum,GLint,GLint,GLint,GLint,GLuint,GLenum,GLint,GLint,GLint,GLint,GLsizei,GLsizei,GLsizei	sync	4.3
+glFramebufferParameteri	void	GLenum,GLenum,GLint	state	4.3
+glGetFramebufferParameteriv	void	GLenum,GLenum,GLint*	query	4.3
+glInvalidateFramebuffer	void	GLenum,GLsizei,const GLenum*	state	4.3
+glInvalidateSubFramebuffer	void	GLenum,GLsizei,const GLenum*,GLint,GLint,GLsizei,GLsizei	state	4.3
+glMultiDrawArraysIndirect	void	GLenum,const void*,GLsizei,GLsizei	draw	4.3
+glMultiDrawElementsIndirect	void	GLenum,GLenum,const void*,GLsizei,GLsizei	draw	4.3
+glShaderStorageBlockBinding	void	GLuint,GLuint,GLuint	state	4.3
+glTexBuffer	void	GLenum,GLenum,GLuint	state	4.3
+glTexBufferRange	void	GLenum,GLenum,GLuint,GLintptr,GLsizeiptr	state	4.3
+glTextureView	void	GLuint,GLenum,GLuint,GLenum,GLuint,GLuint,GLuint,GLuint	state	4.3
+glBufferStorage	void	GLenum,GLsizeiptr,const void*,GLbitfield	state	4.4
+glClearTexImage	void	GLuint,GLint,GLenum,GLenum,const void*	state	4.4
+glClearTexSubImage	void	GLuint,GLint,GLint,GLint,GLint,GLsizei,GLsizei,GLsizei,GLenum,GLenum,const void*	state	4.4
+glBindBuffersBase	void	GLenum,GLuint,GLsizei,const GLuint*	state	4.4
+glBindBuffersRange	void	GLenum,GLuint,GLsizei,const GLuint*,const GLintptr*,const GLsizeiptr*	state	4.4
+glBindTextures	void	GLuint,GLsizei,const GLuint*	state	4.4
+glBindSamplers	void	GLuint,GLsizei,const GLuint*	state	4.4
+glBindImageTextures	void	GLuint,GLsizei,const GLuint*	state	4.4
+glBindVertexBuffers	void	GLuint,GLsizei,const GLuint*,const GLintptr*,const GLsizei*	state	4.4
+
+# --- GL 4.5 DSA: heavily used by Iris and modern mods ---
+
+glClipControl	void	GLenum,GLenum	state	4.5
+glCreateQueries	void	GLenum,GLsizei,GLuint*	resource	4.5
+glCreateTextures	void	GLenum,GLsizei,GLuint*	resource	4.5
+glCreateBuffers	void	GLsizei,GLuint*	resource	4.5
+glCreateFramebuffers	void	GLsizei,GLuint*	resource	4.5
+glCreateRenderbuffers	void	GLsizei,GLuint*	resource	4.5
+glCreateVertexArrays	void	GLsizei,GLuint*	resource	4.5
+glCreateSamplers	void	GLsizei,GLuint*	resource	4.5
+glCreateProgramPipelines	void	GLsizei,GLuint*	resource	4.5
+glCreateTransformFeedbacks	void	GLsizei,GLuint*	resource	4.5
+glTextureStorage1D	void	GLuint,GLsizei,GLenum,GLsizei	state	4.5
+glTextureStorage2D	void	GLuint,GLsizei,GLenum,GLsizei,GLsizei	state	4.5
+glTextureStorage3D	void	GLuint,GLsizei,GLenum,GLsizei,GLsizei,GLsizei	state	4.5
+glTextureStorage2DMultisample	void	GLuint,GLsizei,GLenum,GLsizei,GLsizei,GLboolean	state	4.5
+glTextureSubImage1D	void	GLuint,GLint,GLint,GLsizei,GLenum,GLenum,const void*	state	4.5
+glTextureSubImage2D	void	GLuint,GLint,GLint,GLint,GLsizei,GLsizei,GLenum,GLenum,const void*	state	4.5
+glTextureSubImage3D	void	GLuint,GLint,GLint,GLint,GLint,GLsizei,GLsizei,GLsizei,GLenum,GLenum,const void*	state	4.5
+glTextureParameterf	void	GLuint,GLenum,GLfloat	state	4.5
+glTextureParameteri	void	GLuint,GLenum,GLint	state	4.5
+glTextureParameterfv	void	GLuint,GLenum,const GLfloat*	state	4.5
+glTextureParameteriv	void	GLuint,GLenum,const GLint*	state	4.5
+glGetTextureParameteriv	void	GLuint,GLenum,GLint*	query	4.5
+glGetTextureLevelParameteriv	void	GLuint,GLint,GLenum,GLint*	query	4.5
+glGetTextureImage	void	GLuint,GLint,GLenum,GLenum,GLsizei,void*	sync	4.5
+glGenerateTextureMipmap	void	GLuint	state	4.5
+glNamedBufferData	void	GLuint,GLsizeiptr,const void*,GLenum	state	4.5
+glNamedBufferStorage	void	GLuint,GLsizeiptr,const void*,GLbitfield	state	4.5
+glNamedBufferSubData	void	GLuint,GLintptr,GLsizeiptr,const void*	state	4.5
+glGetNamedBufferSubData	void	GLuint,GLintptr,GLsizeiptr,void*	sync	4.5
+glMapNamedBuffer	void*	GLuint,GLenum	sync	4.5
+glMapNamedBufferRange	void*	GLuint,GLintptr,GLsizeiptr,GLbitfield	sync	4.5
+glUnmapNamedBuffer	GLboolean	GLuint	sync	4.5
+glCopyNamedBufferSubData	void	GLuint,GLuint,GLintptr,GLintptr,GLsizeiptr	sync	4.5
+glClearNamedBufferData	void	GLuint,GLenum,GLenum,GLenum,const void*	state	4.5
+glNamedFramebufferTexture	void	GLuint,GLenum,GLuint,GLint	state	4.5
+glNamedFramebufferRenderbuffer	void	GLuint,GLenum,GLenum,GLuint	state	4.5
+glNamedFramebufferDrawBuffer	void	GLuint,GLenum	state	4.5
+glNamedFramebufferDrawBuffers	void	GLuint,GLsizei,const GLenum*	state	4.5
+glNamedFramebufferReadBuffer	void	GLuint,GLenum	state	4.5
+glCheckNamedFramebufferStatus	GLenum	GLuint,GLenum	query	4.5
+glBlitNamedFramebuffer	void	GLuint,GLuint,GLint,GLint,GLint,GLint,GLint,GLint,GLint,GLint,GLbitfield,GLenum	sync	4.5
+glInvalidateNamedFramebufferData	void	GLuint,GLsizei,const GLenum*	state	4.5
+glNamedRenderbufferStorage	void	GLuint,GLenum,GLsizei,GLsizei	state	4.5
+glNamedRenderbufferStorageMultisample	void	GLuint,GLsizei,GLenum,GLsizei,GLsizei	state	4.5
+glGetNamedRenderbufferParameteriv	void	GLuint,GLenum,GLint*	query	4.5
+glVertexArrayVertexBuffer	void	GLuint,GLuint,GLuint,GLintptr,GLsizei	state	4.5
+glVertexArrayElementBuffer	void	GLuint,GLuint	state	4.5
+glVertexArrayAttribFormat	void	GLuint,GLuint,GLint,GLenum,GLboolean,GLuint	state	4.5
+glVertexArrayAttribBinding	void	GLuint,GLuint,GLuint	state	4.5
+glVertexArrayBindingDivisor	void	GLuint,GLuint,GLuint	state	4.5
+glGetVertexArrayiv	void	GLuint,GLenum,GLint*	query	4.5
+glGetVertexArrayIndexediv	void	GLuint,GLuint,GLenum,GLint*	query	4.5
+glTextureBarrier	void	void	state	4.5
+glGetnUniformfv	void	GLuint,GLint,GLsizei,GLfloat*	query	4.5
+glGetnUniformiv	void	GLuint,GLint,GLsizei,GLint*	query	4.5
+glSpecializeShader	void	GLuint,const char*,GLuint,const GLuint*,const GLuint*	resource	4.6
+glTransformFeedbackBufferBase	void	GLuint,GLuint,GLuint	state	4.5
+glTransformFeedbackBufferRange	void	GLuint,GLuint,GLuint,GLintptr,GLsizeiptr	state	4.5
+glGetNamedBufferParameteriv	void	GLuint,GLenum,GLint*	query	4.5
+glGetNamedBufferParameteri64v	void	GLuint,GLenum,GLint64*	query	4.5
+glGetNamedBufferPointerv	void	GLuint,GLenum,void**	query	4.5
+glGetNamedFramebufferParameteriv	void	GLuint,GLenum,GLint*	query	4.5
+glGetNamedFramebufferAttachmentParameteriv	void	GLuint,GLenum,GLenum,GLint*	query	4.5
+glFlushMappedNamedBufferRange	void	GLuint,GLintptr,GLsizeiptr	sync	4.5
+
+# --- GL 4.5 transform feedback / 4.6 core (needed so nothing dlsyms to NULL) ---
+
+glBeginTransformFeedback	void	GLenum	state	3.0
+glEndTransformFeedback	void	void	state	3.0
+glBindTransformFeedback	void	GLenum,GLuint	state	4.0
+glDeleteTransformFeedbacks	void	GLsizei,const GLuint*	resource	4.0
+glGenTransformFeedbacks	void	GLsizei,GLuint*	resource	4.0
+glIsTransformFeedback	GLboolean	GLuint	query	4.0
+glPauseTransformFeedback	void	void	state	4.0
+glResumeTransformFeedback	void	void	state	4.0
+glTransformFeedbackVaryings	void	GLuint,GLsizei,const char* const*,GLenum	state	3.0
+glDrawTransformFeedback	void	GLenum,GLuint	draw	4.0
+glDrawTransformFeedbackStream	void	GLenum,GLuint,GLuint	draw	4.0
+glGetTransformFeedbackVarying	void	GLuint,GLuint,GLsizei,GLsizei*,GLsizei*,GLenum*,char*	query	3.0
+
+# --- widely-queried extensions ---
+
+glDebugMessageCallback	void	GLDEBUGPROC,const void*	state	ext
+glDebugMessageCallbackKHR	void	GLDEBUGPROC,const void*	state	ext
+glDebugMessageControl	void	GLenum,GLenum,GLenum,GLsizei,const GLuint*,GLboolean	state	ext
+glDebugMessageInsert	void	GLenum,GLenum,GLuint,GLenum,GLsizei,const char*	state	ext
+glGetDebugMessageLog	GLuint	GLuint,GLsizei,GLenum*,GLenum*,GLuint*,GLenum*,GLsizei*,char*	query	ext
+glPushDebugGroup	void	GLenum,GLuint,GLsizei,const char*	state	ext
+glPopDebugGroup	void	void	state	ext
+glObjectLabel	void	GLenum,GLuint,GLsizei,const char*	state	ext
+glGetObjectLabel	void	GLenum,GLuint,GLsizei,GLsizei*,char*	query	ext
+glFenceSync	GLsync	GLenum,GLbitfield	state	ext
+glIsSync	GLboolean	GLsync	query	ext
+glDeleteSync	void	GLsync	resource	ext
+glClientWaitSync	GLenum	GLsync,GLbitfield,GLuint64	sync	ext
+glWaitSync	void	GLsync,GLbitfield,GLuint64	sync	ext
+glGetSynciv	void	GLsync,GLenum,GLsizei,GLsizei*,GLint*	query	ext
+glGetPointervKHR	void	GLenum,void**	query	ext
+glGetGraphicsResetStatus	GLenum	void	query	ext
+glGetGraphicsResetStatusARB	GLenum	void	query	ext
+glGetStringi	const GLubyte*	GLenum,GLuint	query	3.0
+glTexImage2DMultisample	void	GLenum,GLsizei,GLint,GLsizei,GLsizei,GLboolean	state	3.2
+glTexImage3DMultisample	void	GLenum,GLsizei,GLint,GLsizei,GLsizei,GLsizei,GLboolean	state	3.2
+glGetMultisamplefv	void	GLenum,GLuint,GLfloat*	query	3.2
+glSampleMaski	void	GLuint,GLbitfield	state	3.2
+glProvokingVertex	void	GLenum	state	3.2
+glDrawElementsBaseVertex	void	GLenum,GLsizei,GLenum,const void*,GLint	draw	3.2
+glDrawRangeElementsBaseVertex	void	GLenum,GLuint,GLuint,GLsizei,GLenum,const void*,GLint	draw	3.2
+glDrawElementsInstancedBaseVertex	void	GLenum,GLsizei,GLenum,const void*,GLsizei,GLint	draw	3.2
+glMultiDrawElementsBaseVertex	void	GLenum,const GLsizei*,GLenum,const void* const*,GLsizei,const GLint*	draw	3.2
+glDrawArraysInstanced	void	GLenum,GLint,GLsizei,GLsizei	draw	3.1
+glDrawElementsInstanced	void	GLenum,GLsizei,GLenum,const void*,GLsizei	draw	3.1
+glPrimitiveRestartIndex	void	GLuint	state	3.1
+glGetIntegeri_v	void	GLenum,GLuint,GLint*	query	3.0
+glGetInteger64i_v	void	GLenum,GLuint,GLint64*	query	3.2
+glGetBufferParameteri64v	void	GLenum,GLenum,GLint64*	query	3.2
+glGetInteger64v	void	GLenum,GLint64*	query	3.2
+glGetBooleani_v	void	GLenum,GLuint,GLboolean*	query	3.0
+glTexParameterIiv	void	GLenum,GLenum,const GLint*	state	3.0
+glTexParameterIuiv	void	GLenum,GLenum,const GLuint*	state	3.0
+glGetTexParameterIiv	void	GLenum,GLenum,GLint*	query	3.0
+glGetTexParameterIuiv	void	GLenum,GLenum,GLuint*	query	3.0
+glVertexAttribI4i	void	GLuint,GLint,GLint,GLint,GLint	state	3.0
+glVertexAttribI4ui	void	GLuint,GLuint,GLuint,GLuint,GLuint	state	3.0
+glVertexAttrib4Nub	void	GLuint,GLubyte,GLubyte,GLubyte,GLubyte	state	2.0
+glVertexAttrib1fv	void	GLuint,const GLfloat*	state	2.0
+glVertexAttrib2fv	void	GLuint,const GLfloat*	state	2.0
+glVertexAttrib3fv	void	GLuint,const GLfloat*	state	2.0
+glVertexAttrib4fv	void	GLuint,const GLfloat*	state	2.0
+
+# --- generated legacy typed-variant families (tools/gen_families.py) ---
+glVertex2d	void	GLdouble,GLdouble	draw	1.0
+glVertex2dv	void	const GLdouble*	draw	1.0
+glVertex2i	void	GLint,GLint	draw	1.0
+glVertex2iv	void	const GLint*	draw	1.0
+glVertex2s	void	GLshort,GLshort	draw	1.0
+glVertex2sv	void	const GLshort*	draw	1.0
+glVertex3d	void	GLdouble,GLdouble,GLdouble	draw	1.0
+glVertex3dv	void	const GLdouble*	draw	1.0
+glVertex3i	void	GLint,GLint,GLint	draw	1.0
+glVertex3iv	void	const GLint*	draw	1.0
+glVertex3s	void	GLshort,GLshort,GLshort	draw	1.0
+glVertex3sv	void	const GLshort*	draw	1.0
+glVertex4d	void	GLdouble,GLdouble,GLdouble,GLdouble	draw	1.0
+glVertex4dv	void	const GLdouble*	draw	1.0
+glVertex4fv	void	const GLfloat*	draw	1.0
+glVertex4i	void	GLint,GLint,GLint,GLint	draw	1.0
+glVertex4iv	void	const GLint*	draw	1.0
+glVertex4s	void	GLshort,GLshort,GLshort,GLshort	draw	1.0
+glVertex4sv	void	const GLshort*	draw	1.0
+glNormal3bv	void	const GLbyte*	state	1.0
+glNormal3dv	void	const GLdouble*	state	1.0
+glNormal3i	void	GLint,GLint,GLint	state	1.0
+glNormal3iv	void	const GLint*	state	1.0
+glNormal3s	void	GLshort,GLshort,GLshort	state	1.0
+glNormal3sv	void	const GLshort*	state	1.0
+glColor3bv	void	const GLbyte*	state	1.0
+glColor3dv	void	const GLdouble*	state	1.0
+glColor3i	void	GLint,GLint,GLint	state	1.0
+glColor3iv	void	const GLint*	state	1.0
+glColor3s	void	GLshort,GLshort,GLshort	state	1.0
+glColor3sv	void	const GLshort*	state	1.0
+glColor3ubv	void	const GLubyte*	state	1.0
+glColor3ui	void	GLuint,GLuint,GLuint	state	1.0
+glColor3uiv	void	const GLuint*	state	1.0
+glColor3us	void	GLushort,GLushort,GLushort	state	1.0
+glColor3usv	void	const GLushort*	state	1.0
+glColor4bv	void	const GLbyte*	state	1.0
+glColor4dv	void	const GLdouble*	state	1.0
+glColor4i	void	GLint,GLint,GLint,GLint	state	1.0
+glColor4iv	void	const GLint*	state	1.0
+glColor4s	void	GLshort,GLshort,GLshort,GLshort	state	1.0
+glColor4sv	void	const GLshort*	state	1.0
+glColor4ubv	void	const GLubyte*	state	1.0
+glColor4ui	void	GLuint,GLuint,GLuint,GLuint	state	1.0
+glColor4uiv	void	const GLuint*	state	1.0
+glColor4us	void	GLushort,GLushort,GLushort,GLushort	state	1.0
+glColor4usv	void	const GLushort*	state	1.0
+glTexCoord1d	void	GLdouble	state	1.0
+glTexCoord1dv	void	const GLdouble*	state	1.0
+glTexCoord1f	void	GLfloat	state	1.0
+glTexCoord1fv	void	const GLfloat*	state	1.0
+glTexCoord1i	void	GLint	state	1.0
+glTexCoord1iv	void	const GLint*	state	1.0
+glTexCoord1s	void	GLshort	state	1.0
+glTexCoord1sv	void	const GLshort*	state	1.0
+glTexCoord2d	void	GLdouble,GLdouble	state	1.0
+glTexCoord2dv	void	const GLdouble*	state	1.0
+glTexCoord2i	void	GLint,GLint	state	1.0
+glTexCoord2iv	void	const GLint*	state	1.0
+glTexCoord2s	void	GLshort,GLshort	state	1.0
+glTexCoord2sv	void	const GLshort*	state	1.0
+glTexCoord3d	void	GLdouble,GLdouble,GLdouble	state	1.0
+glTexCoord3dv	void	const GLdouble*	state	1.0
+glTexCoord3fv	void	const GLfloat*	state	1.0
+glTexCoord3i	void	GLint,GLint,GLint	state	1.0
+glTexCoord3iv	void	const GLint*	state	1.0
+glTexCoord3s	void	GLshort,GLshort,GLshort	state	1.0
+glTexCoord3sv	void	const GLshort*	state	1.0
+glTexCoord4d	void	GLdouble,GLdouble,GLdouble,GLdouble	state	1.0
+glTexCoord4dv	void	const GLdouble*	state	1.0
+glTexCoord4fv	void	const GLfloat*	state	1.0
+glTexCoord4i	void	GLint,GLint,GLint,GLint	state	1.0
+glTexCoord4iv	void	const GLint*	state	1.0
+glTexCoord4s	void	GLshort,GLshort,GLshort,GLshort	state	1.0
+glTexCoord4sv	void	const GLshort*	state	1.0
+glMultiTexCoord1d	void	GLenum,GLdouble	state	1.3
+glMultiTexCoord1dv	void	GLenum,const GLdouble*	state	1.3
+glMultiTexCoord1f	void	GLenum,GLfloat	state	1.3
+glMultiTexCoord1fv	void	GLenum,const GLfloat*	state	1.3
+glMultiTexCoord1i	void	GLenum,GLint	state	1.3
+glMultiTexCoord1iv	void	GLenum,const GLint*	state	1.3
+glMultiTexCoord1s	void	GLenum,GLshort	state	1.3
+glMultiTexCoord1sv	void	GLenum,const GLshort*	state	1.3
+glMultiTexCoord2d	void	GLenum,GLdouble,GLdouble	state	1.3
+glMultiTexCoord2dv	void	GLenum,const GLdouble*	state	1.3
+glMultiTexCoord2f	void	GLenum,GLfloat,GLfloat	state	1.3
+glMultiTexCoord2fv	void	GLenum,const GLfloat*	state	1.3
+glMultiTexCoord2i	void	GLenum,GLint,GLint	state	1.3
+glMultiTexCoord2iv	void	GLenum,const GLint*	state	1.3
+glMultiTexCoord2s	void	GLenum,GLshort,GLshort	state	1.3
+glMultiTexCoord2sv	void	GLenum,const GLshort*	state	1.3
+glMultiTexCoord3d	void	GLenum,GLdouble,GLdouble,GLdouble	state	1.3
+glMultiTexCoord3dv	void	GLenum,const GLdouble*	state	1.3
+glMultiTexCoord3f	void	GLenum,GLfloat,GLfloat,GLfloat	state	1.3
+glMultiTexCoord3fv	void	GLenum,const GLfloat*	state	1.3
+glMultiTexCoord3i	void	GLenum,GLint,GLint,GLint	state	1.3
+glMultiTexCoord3iv	void	GLenum,const GLint*	state	1.3
+glMultiTexCoord3s	void	GLenum,GLshort,GLshort,GLshort	state	1.3
+glMultiTexCoord3sv	void	GLenum,const GLshort*	state	1.3
+glMultiTexCoord4d	void	GLenum,GLdouble,GLdouble,GLdouble,GLdouble	state	1.3
+glMultiTexCoord4dv	void	GLenum,const GLdouble*	state	1.3
+glMultiTexCoord4f	void	GLenum,GLfloat,GLfloat,GLfloat,GLfloat	state	1.3
+glMultiTexCoord4fv	void	GLenum,const GLfloat*	state	1.3
+glMultiTexCoord4i	void	GLenum,GLint,GLint,GLint,GLint	state	1.3
+glMultiTexCoord4iv	void	GLenum,const GLint*	state	1.3
+glMultiTexCoord4s	void	GLenum,GLshort,GLshort,GLshort,GLshort	state	1.3
+glMultiTexCoord4sv	void	GLenum,const GLshort*	state	1.3
+glRasterPos2d	void	GLdouble,GLdouble	state	1.0
+glRasterPos2dv	void	const GLdouble*	state	1.0
+glRasterPos2fv	void	const GLfloat*	state	1.0
+glRasterPos2i	void	GLint,GLint	state	1.0
+glRasterPos2iv	void	const GLint*	state	1.0
+glRasterPos2s	void	GLshort,GLshort	state	1.0
+glRasterPos2sv	void	const GLshort*	state	1.0
+glRasterPos3d	void	GLdouble,GLdouble,GLdouble	state	1.0
+glRasterPos3dv	void	const GLdouble*	state	1.0
+glRasterPos3fv	void	const GLfloat*	state	1.0
+glRasterPos3i	void	GLint,GLint,GLint	state	1.0
+glRasterPos3iv	void	const GLint*	state	1.0
+glRasterPos3s	void	GLshort,GLshort,GLshort	state	1.0
+glRasterPos3sv	void	const GLshort*	state	1.0
+glRasterPos4d	void	GLdouble,GLdouble,GLdouble,GLdouble	state	1.0
+glRasterPos4dv	void	const GLdouble*	state	1.0
+glRasterPos4f	void	GLfloat,GLfloat,GLfloat,GLfloat	state	1.0
+glRasterPos4fv	void	const GLfloat*	state	1.0
+glRasterPos4i	void	GLint,GLint,GLint,GLint	state	1.0
+glRasterPos4iv	void	const GLint*	state	1.0
+glRasterPos4s	void	GLshort,GLshort,GLshort,GLshort	state	1.0
+glRasterPos4sv	void	const GLshort*	state	1.0
+glWindowPos2d	void	GLdouble,GLdouble	state	1.4
+glWindowPos2dv	void	const GLdouble*	state	1.4
+glWindowPos2f	void	GLfloat,GLfloat	state	1.4
+glWindowPos2fv	void	const GLfloat*	state	1.4
+glWindowPos2i	void	GLint,GLint	state	1.4
+glWindowPos2iv	void	const GLint*	state	1.4
+glWindowPos2s	void	GLshort,GLshort	state	1.4
+glWindowPos2sv	void	const GLshort*	state	1.4
+glWindowPos3d	void	GLdouble,GLdouble,GLdouble	state	1.4
+glWindowPos3dv	void	const GLdouble*	state	1.4
+glWindowPos3f	void	GLfloat,GLfloat,GLfloat	state	1.4
+glWindowPos3fv	void	const GLfloat*	state	1.4
+glWindowPos3i	void	GLint,GLint,GLint	state	1.4
+glWindowPos3iv	void	const GLint*	state	1.4
+glWindowPos3s	void	GLshort,GLshort,GLshort	state	1.4
+glWindowPos3sv	void	const GLshort*	state	1.4
+glWindowPos4d	void	GLdouble,GLdouble,GLdouble,GLdouble	state	1.4
+glWindowPos4dv	void	const GLdouble*	state	1.4
+glWindowPos4f	void	GLfloat,GLfloat,GLfloat,GLfloat	state	1.4
+glWindowPos4fv	void	const GLfloat*	state	1.4
+glWindowPos4i	void	GLint,GLint,GLint,GLint	state	1.4
+glWindowPos4iv	void	const GLint*	state	1.4
+glWindowPos4s	void	GLshort,GLshort,GLshort,GLshort	state	1.4
+glWindowPos4sv	void	const GLshort*	state	1.4
+glSecondaryColor3b	void	GLbyte,GLbyte,GLbyte	state	1.4
+glSecondaryColor3bv	void	const GLbyte*	state	1.4
+glSecondaryColor3d	void	GLdouble,GLdouble,GLdouble	state	1.4
+glSecondaryColor3dv	void	const GLdouble*	state	1.4
+glSecondaryColor3f	void	GLfloat,GLfloat,GLfloat	state	1.4
+glSecondaryColor3fv	void	const GLfloat*	state	1.4
+glSecondaryColor3i	void	GLint,GLint,GLint	state	1.4
+glSecondaryColor3iv	void	const GLint*	state	1.4
+glSecondaryColor3s	void	GLshort,GLshort,GLshort	state	1.4
+glSecondaryColor3sv	void	const GLshort*	state	1.4
+glSecondaryColor3ub	void	GLubyte,GLubyte,GLubyte	state	1.4
+glSecondaryColor3ubv	void	const GLubyte*	state	1.4
+glSecondaryColor3ui	void	GLuint,GLuint,GLuint	state	1.4
+glSecondaryColor3uiv	void	const GLuint*	state	1.4
+glSecondaryColor3us	void	GLushort,GLushort,GLushort	state	1.4
+glSecondaryColor3usv	void	const GLushort*	state	1.4
+glSecondaryColor3bEXT	void	GLbyte,GLbyte,GLbyte	state	ext
+glSecondaryColor3bvEXT	void	const GLbyte*	state	ext
+glSecondaryColor3dEXT	void	GLdouble,GLdouble,GLdouble	state	ext
+glSecondaryColor3dvEXT	void	const GLdouble*	state	ext
+glSecondaryColor3fEXT	void	GLfloat,GLfloat,GLfloat	state	ext
+glSecondaryColor3fvEXT	void	const GLfloat*	state	ext
+glSecondaryColor3iEXT	void	GLint,GLint,GLint	state	ext
+glSecondaryColor3ivEXT	void	const GLint*	state	ext
+glSecondaryColor3sEXT	void	GLshort,GLshort,GLshort	state	ext
+glSecondaryColor3svEXT	void	const GLshort*	state	ext
+glSecondaryColor3ubEXT	void	GLubyte,GLubyte,GLubyte	state	ext
+glSecondaryColor3ubvEXT	void	const GLubyte*	state	ext
+glSecondaryColor3uiEXT	void	GLuint,GLuint,GLuint	state	ext
+glSecondaryColor3uivEXT	void	const GLuint*	state	ext
+glSecondaryColor3usEXT	void	GLushort,GLushort,GLushort	state	ext
+glSecondaryColor3usvEXT	void	const GLushort*	state	ext
+glIndexd	void	GLdouble	state	1.0
+glIndexdv	void	const GLdouble*	state	1.0
+glIndexfv	void	const GLfloat*	state	1.0
+glIndexi	void	GLint	state	1.0
+glIndexiv	void	const GLint*	state	1.0
+glIndexs	void	GLshort	state	1.0
+glIndexsv	void	const GLshort*	state	1.0
+glIndexub	void	GLubyte	state	1.0
+glIndexubv	void	const GLubyte*	state	1.0
+glLightModeli	void	GLenum,GLint	state	1.0
+glLightModeliv	void	GLenum,const GLint*	state	1.0
+glTexGendv	void	GLenum,GLenum,const GLdouble*	state	1.0
+glPointParameterfEXT	void	GLenum,GLfloat	state	1.4
+glPointParameterfvEXT	void	GLenum,const GLfloat*	state	1.4
+glEvalCoord1d	void	GLdouble	unsupported	1.0
+glEvalCoord1dv	void	const GLdouble*	unsupported	1.0
+glEvalCoord1fv	void	const GLfloat*	unsupported	1.0
+glEvalCoord2d	void	GLdouble,GLdouble	unsupported	1.0
+glEvalCoord2dv	void	const GLdouble*	unsupported	1.0
+glEvalCoord2f	void	GLfloat,GLfloat	unsupported	1.0
+glEvalCoord2fv	void	const GLfloat*	unsupported	1.0
+glMap1d	void	GLenum,GLdouble,GLdouble,GLint,GLint,const GLdouble*	unsupported	1.0
+glMap2d	void	GLenum,GLdouble,GLdouble,GLint,GLint,GLdouble,GLdouble,GLint,GLint,const GLdouble*	unsupported	1.0
+glGetMapdv	void	GLenum,GLenum,GLdouble*	unsupported	1.0
+glGetMapfv	void	GLenum,GLenum,GLfloat*	unsupported	1.0
+glGetMapiv	void	GLenum,GLenum,GLint*	unsupported	1.0
+glMapGrid1d	void	GLint,GLdouble,GLdouble	unsupported	1.0
+glMapGrid2d	void	GLint,GLdouble,GLdouble,GLint,GLdouble,GLdouble	unsupported	1.0
+glPixelMapuiv	void	GLenum,GLsizei,const GLuint*	unsupported	1.0
+glPixelMapusv	void	GLenum,GLsizei,const GLushort*	unsupported	1.0
+glGetPixelMapuiv	void	GLenum,GLuint*	unsupported	1.0
+glGetPixelMapusv	void	GLenum,GLushort*	unsupported	1.0
+glPixelTransferi	void	GLenum,GLint	unsupported	1.0
+glVertexAttrib1d	void	GLuint,GLdouble	state	2.0
+glVertexAttrib1i	void	GLuint,GLint	state	2.0
+glVertexAttrib1s	void	GLuint,GLshort	state	2.0
+glVertexAttrib2d	void	GLuint,GLdouble,GLdouble	state	2.0
+glVertexAttrib2i	void	GLuint,GLint,GLint	state	2.0
+glVertexAttrib2s	void	GLuint,GLshort,GLshort	state	2.0
+glVertexAttrib3d	void	GLuint,GLdouble,GLdouble,GLdouble	state	2.0
+glVertexAttrib3i	void	GLuint,GLint,GLint,GLint	state	2.0
+glVertexAttrib3s	void	GLuint,GLshort,GLshort,GLshort	state	2.0
+glVertexAttrib4d	void	GLuint,GLdouble,GLdouble,GLdouble,GLdouble	state	2.0
+glVertexAttrib4i	void	GLuint,GLint,GLint,GLint,GLint	state	2.0
+glVertexAttrib4s	void	GLuint,GLshort,GLshort,GLshort,GLshort	state	2.0
+glVertexAttrib1dv	void	GLuint,const GLdouble*	state	2.0
+glVertexAttrib1iv	void	GLuint,const GLint*	state	2.0
+glVertexAttrib1sv	void	GLuint,const GLshort*	state	2.0
+glVertexAttrib2dv	void	GLuint,const GLdouble*	state	2.0
+glVertexAttrib2iv	void	GLuint,const GLint*	state	2.0
+glVertexAttrib2sv	void	GLuint,const GLshort*	state	2.0
+glVertexAttrib3dv	void	GLuint,const GLdouble*	state	2.0
+glVertexAttrib3iv	void	GLuint,const GLint*	state	2.0
+glVertexAttrib3sv	void	GLuint,const GLshort*	state	2.0
+glVertexAttrib4dv	void	GLuint,const GLdouble*	state	2.0
+glVertexAttrib4iv	void	GLuint,const GLint*	state	2.0
+glVertexAttrib4sv	void	GLuint,const GLshort*	state	2.0
+glVertexAttrib4Nbv	void	GLuint,const GLbyte*	state	2.0
+glVertexAttrib4Nsv	void	GLuint,const GLshort*	state	2.0
+glVertexAttrib4Niv	void	GLuint,const GLint*	state	2.0
+glVertexAttrib4Nubv	void	GLuint,const GLubyte*	state	2.0
+glVertexAttrib4Nusv	void	GLuint,const GLushort*	state	2.0
+glVertexAttrib4Nuiv	void	GLuint,const GLuint*	state	2.0
+glVertexAttrib4bv	void	GLuint,const GLbyte*	state	2.0
+glVertexAttrib4ubv	void	GLuint,const GLubyte*	state	2.0
+glVertexAttrib4usv	void	GLuint,const GLushort*	state	2.0
+glVertexAttrib4uiv	void	GLuint,const GLuint*	state	2.0
+glVertexAttribI2i	void	GLuint,GLint,GLint	state	2.0
+glVertexAttribI3i	void	GLuint,GLint,GLint,GLint	state	2.0
+glVertexAttribI1iv	void	GLuint,const GLint*	state	2.0
+glVertexAttribI2iv	void	GLuint,const GLint*	state	2.0
+glVertexAttribI3iv	void	GLuint,const GLint*	state	2.0
+glVertexAttribI4iv	void	GLuint,const GLint*	state	2.0
+glVertexAttribI1ui	void	GLuint,GLuint	state	2.0
+glVertexAttribI2ui	void	GLuint,GLuint,GLuint	state	2.0
+glVertexAttribI3ui	void	GLuint,GLuint,GLuint,GLuint	state	2.0
+glVertexAttribI1uiv	void	GLuint,const GLuint*	state	2.0
+glVertexAttribI2uiv	void	GLuint,const GLuint*	state	2.0
+glVertexAttribI3uiv	void	GLuint,const GLuint*	state	2.0
+glVertexAttribI4uiv	void	GLuint,const GLuint*	state	2.0
+glUniform2uiv	void	GLint,GLsizei,const GLuint*	state	2.0
+glUniform3uiv	void	GLint,GLsizei,const GLuint*	state	2.0
+glUniform4uiv	void	GLint,GLsizei,const GLuint*	state	2.0
+glUniform2d	void	GLint,GLdouble,GLdouble	state	4.0
+glUniform3d	void	GLint,GLdouble,GLdouble,GLdouble	state	4.0
+glUniform4d	void	GLint,GLdouble,GLdouble,GLdouble,GLdouble	state	4.0
+glUniform1dv	void	GLint,GLsizei,const GLdouble*	state	4.0
+glUniform2dv	void	GLint,GLsizei,const GLdouble*	state	4.0
+glUniform3dv	void	GLint,GLsizei,const GLdouble*	state	4.0
+glUniform4dv	void	GLint,GLsizei,const GLdouble*	state	4.0
+glUniformMatrix2dv	void	GLint,GLsizei,GLboolean,const GLdouble*	state	2.0
+glUniformMatrix3dv	void	GLint,GLsizei,GLboolean,const GLdouble*	state	2.0
+glUniformMatrix2x3fv	void	GLint,GLsizei,GLboolean,const GLfloat*	state	2.0
+glUniformMatrix2x4fv	void	GLint,GLsizei,GLboolean,const GLfloat*	state	2.0
+glUniformMatrix3x2fv	void	GLint,GLsizei,GLboolean,const GLfloat*	state	2.0
+glUniformMatrix3x4fv	void	GLint,GLsizei,GLboolean,const GLfloat*	state	2.0
+glUniformMatrix4x2fv	void	GLint,GLsizei,GLboolean,const GLfloat*	state	2.0
+glUniformMatrix4x3fv	void	GLint,GLsizei,GLboolean,const GLfloat*	state	2.0
+glRectd	void	GLdouble,GLdouble,GLdouble,GLdouble	draw	1.0
+glRectdv	void	const GLdouble*,const GLdouble*	draw	1.0
+glRectfv	void	const GLfloat*,const GLfloat*	draw	1.0
+glRectiv	void	const GLint*,const GLint*	draw	1.0
+glRects	void	GLshort,GLshort,GLshort,GLshort	draw	1.0
+glRectsv	void	const GLshort*,const GLshort*	draw	1.0

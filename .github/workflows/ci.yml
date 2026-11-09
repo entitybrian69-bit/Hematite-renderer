@@ -1,0 +1,96 @@
+name: CI
+
+# What this workflow proves: CPU builds/tests, the ABI table, shader reproducibility, real
+# Vulkan offscreen rendering on the SwiftShader software driver, an arm64-v8a cross build
+# and a signed APK. It does NOT prove device behaviour, launcher compatibility, Minecraft
+# or shader-pack support, or any performance number.
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+
+jobs:
+  checks:
+    name: Native CPU checks and ABI declarations
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.85.0
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - name: Check, Clippy, formatting, tests and ABI generation
+        run: ./build.sh check
+      - name: Check tracked ABI manifest is current
+        run: git diff --exit-code abi/expected_symbols.txt
+
+  shaders:
+    name: SPIR-V matches the original GLSL
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Fetch pinned glslang
+        run: python3 tools/setup_android_tools.py
+      - name: Recompile and compare
+        run: ./build.sh shaders
+
+  gpu:
+    name: Vulkan offscreen rendering (SwiftShader)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.85.0
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Fetch pinned SwiftShader driver
+        run: python3 tools/setup_android_tools.py
+      - name: Render and verify pixels against the analytic reference
+        run: ./build.sh gpu
+      - uses: actions/upload-artifact@v4
+        with:
+          name: swiftshader-readback
+          path: target/triangle.ppm
+
+  android-apk:
+    name: Cross-compile arm64-v8a and build signed APK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pinned toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.85.0
+          targets: aarch64-linux-android
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Fetch pinned zig and Python APK tools
+        run: python3 tools/setup_android_tools.py
+      - name: Cross-compile and inspect libhematite.so
+        run: ./build.sh android
+      - name: Build, sign and verify the APK
+        run: ./build.sh apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hematite-debug-apk
+          path: dist/hematite-debug.apk
+
+  # Deliberately absent: Gradle/cargo-ndk jobs, release signing, device or emulator runs,
+  # and any Minecraft/shader-pack compatibility job. Those need implementations and
+  # hardware this repository does not have yet; see docs/KNOWN_LIMITATIONS.md.

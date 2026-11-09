@@ -1,0 +1,39 @@
+# Rust
+/target/
+**/target/
+*.rs.bk
+Cargo.lock.bak
+
+# Generated ABI code (produced by `cargo run -p xtask -- gen-abi`).
+# The def file is the source of truth; the generated files are build artifacts.
+crates/hematite-gl-frontend/src/gen/
+
+# Node (tools/check_syntax.mjs)
+/node_modules/
+/package-lock.json
+
+# Build outputs
+/dist/
+*.apk
+*.aab
+*.so
+*.dylib
+*.dll
+
+# Local tooling
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# Runtime output that must never be committed
+/hematite-logs/
+/dumps/
+*.log
+
+# Python
+__pycache__/
+*.pyc
+
+# Downloaded fallback compiler and WASI test output
+/.cache/

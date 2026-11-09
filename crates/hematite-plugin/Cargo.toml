@@ -1,0 +1,17 @@
+[package]
+name = "hematite-plugin"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "C ABI over the Hematite Vulkan backend, shipped inside the Android APK"
+
+[dependencies]
+hematite-vk-backend.workspace = true
+hematite-fixed-function.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
