@@ -4,10 +4,10 @@
 *.rs.bk
 Cargo.lock.bak
 
-# Generated ABI code (produced by `cargo run -p xtask -- gen-abi`).
-# The def file is the source of truth; the generated files are build artifacts.
-# gen/ IS tracked: a fresh `cargo check --workspace` has to work before anyone runs
-# `./build.sh abi`, and that target regenerates, formats and fails on drift.
+# The generated ABI code under crates/hematite-gl-frontend/src/gen/ IS tracked, even
+# though `cargo run -p xtask -- gen-abi` produces it: a fresh checkout has to pass
+# `cargo check --workspace` before anyone runs the generator. `./build.sh abi`
+# regenerates, formats and fails if the tracked copy differs.
 
 # Node (tools/check_syntax.mjs)
 /node_modules/
