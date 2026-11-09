@@ -33,8 +33,17 @@ require() {
     if [[ ! -e "$1" ]]; then
         echo "missing $1" >&2
         echo "run: python3 tools/setup_native_rust.py && python3 tools/setup_android_tools.py" >&2
+        echo "     (on a rustup toolchain: rustup target add aarch64-linux-android)" >&2
         exit 2
     fi
+}
+
+# Android stdlib for whichever toolchain is active: rustup installs it into its own
+# sysroot, the pinned npm toolchain into .cache/. Never assume one of them.
+android_stdlib() {
+    local sysroot
+    sysroot=$(rustc --print sysroot 2>/dev/null) || return 1
+    echo "$sysroot/lib/rustlib/aarch64-linux-android"
 }
 
 case "${1:-check}" in
@@ -77,7 +86,7 @@ case "${1:-check}" in
         ;;
     android)
         require "$HEMATITE_ZIG"
-        require .cache/native-rust/toolchain/lib/rustlib/aarch64-linux-android
+        require "$(android_stdlib)"
         cargo build --locked -p hematite-plugin --release --target aarch64-linux-android
         python3 tools/inspect_library.py target/aarch64-linux-android/release/libhematite_plugin.so
         ;;
