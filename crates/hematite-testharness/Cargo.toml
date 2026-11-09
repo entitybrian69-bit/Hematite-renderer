@@ -1,0 +1,15 @@
+[package]
+name = "hematite-testharness"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Analytic offscreen Vulkan readback tests, not a GL conformance harness"
+
+[dependencies]
+hematite-vk-backend.workspace = true
+hematite-glsl.workspace = true
+hematite-fixed-function.workspace = true
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"

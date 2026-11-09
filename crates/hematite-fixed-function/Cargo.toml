@@ -1,0 +1,12 @@
+[package]
+name = "hematite-fixed-function"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Legacy GL matrix stacks and primitive assembly for Hematite"
+
+[dependencies]
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"

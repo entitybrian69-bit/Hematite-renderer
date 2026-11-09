@@ -1,0 +1,10 @@
+# Python tools used only by ./build.sh apk (installed into .cache/pylibs, never imported
+# by the Rust workspace). Versions are pinned to what tools/verify_apk.py was checked
+# against; transitive dependencies are resolved by pip.
+#
+#   cryptography  APK Signature Scheme v1 (JAR) PKCS#7 signing and the v2 RSA signature
+#   androguard    independent parser for the binary AndroidManifest.xml this repo writes
+#   apksigtool    independent verifier for the APK Signature Scheme v2 block
+cryptography==50.0.2
+androguard==4.1.4
+apksigtool==0.1.0

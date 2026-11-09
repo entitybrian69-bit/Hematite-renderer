@@ -1,0 +1,65 @@
+# Hematite quirks database.
+#
+# Each entry describes a device/driver fact that changes a code path. The format carries an
+# explicit evidence field because the honest state of almost every entry is "not verified":
+# confirming a driver bug requires reproducing it on that driver, and this project has never
+# run on hardware (docs/ENVIRONMENT.md).
+#
+# `status` is one of:
+#   verified      - reproduced on the hardware described, with a note saying how
+#   reported      - reported by a third party (upstream issue, user report), not reproduced here
+#   unverified    - a plausible guess from vendor documentation or architecture; treat as a hint
+#
+# Nothing may ship as `verified` without a reproduction. A `verified` entry with no
+# `evidence` is a bug.
+
+[meta]
+format_version = 1
+
+# ---------------------------------------------------------------------------
+# Example entries. These are NOT part of a shipping database; they exist to pin the format
+# and to show how an entry must look before it is trusted. Every one is `unverified`.
+# ---------------------------------------------------------------------------
+
+# Timestamps are the clearest example of a difference no one has measured here. On Android,
+# `timestampPeriod` is usually 1.0 ns, but the spec permits otherwise, and Android's own
+# guidance warns that some drivers report unreliable timestamps.
+[[quirks]]
+id = "timestamp-period-nonzero"
+status = "unverified"
+evidence = "Vulkan spec: VkPhysicalDeviceLimits::timestampPeriod may be any positive value"
+match.device_name = "*"
+match.driver_substring = ""
+effect.timestamp_ns_per_tick = 1.0
+note = "Always read timestampPeriod instead of assuming 1.0; this entry documents the assumption to remove."
+
+# Tilers generally prefer attachments that are never loaded, but which vendors actually
+# benefit and by how much is unmeasured here.
+[[quirks]]
+id = "tiler-prefer-dont-care-load"
+status = "unverified"
+evidence = "Architecture reasoning only (tile-based renderers); no measurement"
+match.vendor = "arm"
+effect.prefer_dont_care_on_first_write = true
+note = "Applies the D-007 load-op policy more aggressively. Measure before enabling by default."
+
+# Older Adreno drivers are widely reported to mishandle some extended dynamic state
+# entry points. This is a placeholder shape for such an entry, not a claim.
+[[quirks]]
+id = "adreno-disable-eds2"
+status = "unverified"
+evidence = "No reproduction; included to show the shape of a feature-disable entry"
+match.vendor = "qualcomm"
+match.driver_version_below = "512.0"
+effect.disable_extended_dynamic_state2 = true
+note = "If a real report exists, cite its issue URL in `evidence` and change status to `reported`."
+
+# Force the GLES backend when Vulkan is present but known-bad on a driver. Kept empty of
+# real data deliberately: shipping a "Vulkan is broken on X" rule without a reproduction
+# would silently degrade every user on that device.
+[[quirks]]
+id = "example-force-gles"
+status = "unverified"
+match.device_name = "example-never-matches"
+effect.force_backend = "gles"
+note = "Template only. The device name cannot match, so this entry is inert."

@@ -1,0 +1,12 @@
+[package]
+name = "hematite-shader-cache"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Content-addressed, integrity-checked shader and pipeline cache records"
+
+[dependencies]
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"

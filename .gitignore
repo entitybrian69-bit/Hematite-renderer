@@ -1,0 +1,44 @@
+# Rust
+/target/
+**/target/
+*.rs.bk
+Cargo.lock.bak
+
+# The generated ABI code under crates/hematite-gl-frontend/src/gen/ IS tracked, even
+# though `cargo run -p xtask -- gen-abi` produces it: a fresh checkout has to pass
+# `cargo check --workspace` before anyone runs the generator. `./build.sh abi`
+# regenerates, formats and fails if the tracked copy differs.
+
+# Node (tools/check_syntax.mjs)
+/node_modules/
+/package-lock.json
+
+# Build outputs
+# dist/ is ignored except the bring-up APK, which is committed so it has a stable
+# download URL. (/dist/* rather than /dist/ so the exception can take effect.)
+/dist/*
+!/dist/hematite-debug.apk
+*.apk
+!hematite-debug.apk
+*.aab
+*.so
+*.dylib
+*.dll
+
+# Local tooling
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# Runtime output that must never be committed
+/hematite-logs/
+/dumps/
+*.log
+
+# Python
+__pycache__/
+*.pyc
+
+# Downloaded fallback compiler and WASI test output
+/.cache/

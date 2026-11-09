@@ -1,0 +1,12 @@
+[package]
+name = "hematite-ir"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Backend-neutral command and state representation for Hematite's GL translation"
+
+[dependencies]
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"

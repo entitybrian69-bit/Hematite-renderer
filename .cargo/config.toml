@@ -1,0 +1,15 @@
+# Hematite builds hermetically: crates.io is not reachable from this project's build
+# environments, so the single third-party Rust dependency (naga, the GLSL -> SPIR-V
+# compiler) and its whole dependency closure are vendored as a cargo directory source
+# by `tools/setup_vendor_sources.py` and committed under `vendor/sources`.
+#
+# Everything else in the workspace is a path dependency (`vendor/ash` and the
+# `crates/*` members), so replacing crates.io costs nothing.
+[source.crates-io]
+replace-with = "hematite-vendored"
+
+[source.hematite-vendored]
+directory = "vendor/sources"
+
+[net]
+offline = true

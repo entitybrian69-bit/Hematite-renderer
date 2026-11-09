@@ -1,0 +1,16 @@
+[package]
+name = "hematite-vk-backend"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Vulkan instance/device and offscreen rendering for Hematite"
+
+[dependencies]
+ash.workspace = true
+
+[dev-dependencies]
+hematite-glsl.workspace = true
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
