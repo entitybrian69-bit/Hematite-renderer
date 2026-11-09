@@ -147,14 +147,38 @@ def install_zig(force: bool) -> Path:
     return zig
 
 
+def active_sysroot() -> Path | None:
+    """Sysroot of whichever rustc is on PATH, if there is one."""
+    completed = subprocess.run(["rustc", "--print", "sysroot"], capture_output=True, text=True)
+    if completed.returncode != 0:
+        return None
+    return Path(completed.stdout.strip())
+
+
 def install_rust_std(force: bool) -> None:
-    """Add the aarch64-linux-android std to the local Rust toolchain."""
+    """Make the aarch64-linux-android std available to the active toolchain.
+
+    Two situations are supported: the pinned npm toolchain under `.cache/` (used when
+    official Rust hosts are unreachable), and a normal rustup toolchain, where the target
+    is either already installed or added with `rustup target add`. Nothing is downloaded
+    when the target is already present.
+    """
+    sysroot = active_sysroot()
+    if sysroot is not None:
+        target_directory = sysroot / "lib/rustlib/aarch64-linux-android"
+        if target_directory.is_dir():
+            print(f"rust-std already present in the active sysroot: {target_directory}")
+            return
     toolchain = CACHE / "native-rust/toolchain/lib/rustlib/aarch64-linux-android"
     if toolchain.is_dir() and not force:
         print(f"rust-std already present: {toolchain}")
         return
     if not (CACHE / "native-rust/toolchain/bin/cargo").is_file():
-        raise SystemExit("run tools/setup_native_rust.py first")
+        if sysroot is None:
+            raise SystemExit("no rustc on PATH; run tools/setup_native_rust.py first")
+        print(f"installing the target into the active rustup toolchain ({sysroot})")
+        run(["rustup", "target", "add", "aarch64-linux-android"])
+        return
     archive = npm_pack(RUST_STD_NPM, CACHE / "android/downloads")
     staging = CACHE / "android/rust-std"
     if staging.exists():
@@ -226,8 +250,14 @@ def install_vulkan(force: bool) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--force", action="store_true", help="re-download and reinstall")
+    parser.add_argument("--skip-rust-std", action="store_true",
+                        help="do not touch the Rust stdlib (for jobs that only need "
+                             "glslang, SwiftShader or the APK tools)")
     arguments = parser.parse_args()
-    for step in (install_zig, install_rust_std, install_python_tools, install_vulkan):
+    steps = [install_zig, install_rust_std, install_python_tools, install_vulkan]
+    if arguments.skip_rust_std:
+        steps.remove(install_rust_std)
+    for step in steps:
         print(f"{step.__name__}:")
         step(arguments.force)
     print("\nAndroid and GPU tooling is ready. Next:")

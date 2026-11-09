@@ -40,7 +40,7 @@ jobs:
         with:
           node-version: 20
       - name: Fetch pinned glslang
-        run: python3 tools/setup_android_tools.py
+        run: python3 tools/setup_android_tools.py --skip-rust-std
       - name: Recompile and compare
         run: ./build.sh shaders
 
@@ -58,7 +58,7 @@ jobs:
         with:
           node-version: 20
       - name: Fetch pinned SwiftShader driver
-        run: python3 tools/setup_android_tools.py
+        run: python3 tools/setup_android_tools.py --skip-rust-std
       - name: Render and verify pixels against the analytic reference
         run: ./build.sh gpu
       - uses: actions/upload-artifact@v4
