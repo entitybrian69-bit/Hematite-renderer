@@ -2,14 +2,18 @@
 //!
 //! # What this ABI is, and what it is not
 //!
-//! It is a small bring-up interface over the crates that actually exist: the Vulkan
-//! offscreen renderer and the fixed-function matrix stack. Every exported function is a
-//! real implementation of the work it names.
+//! It is the bring-up interface plus the GL/EGL frontend: the 866 `gl*`/`egl*` entry
+//! points in `abi/expected_symbols.txt` are all exported with their declared signatures,
+//! and the fixed-function subset (state, matrices, arrays, immediate mode, textures,
+//! depth, blending, readback) really renders, on a software rasterizer. EGL publishes
+//! frames to a software backbuffer.
 //!
-//! It is **not** the LWJGL OpenGL ABI. The 866 `gl*`/`egl*` entry points in
-//! `abi/expected_symbols.txt` are still generated declarations only, so no Pojav-derived
-//! launcher can load this library as a renderer: it does not intercept a single GL call
-//! and never will until the GL frontend is implemented (see `docs/ROADMAP.md`).
+//! It is **not** a complete GLES2 driver. GLSL is not compiled, so `glCompileShader`
+//! reports failure and shader-driven pipelines cannot run; there is no swapchain or window
+//! system, and no stencil or multisampling. `hematite_gl_export_count` and
+//! `hematite_gl_proc_address` let a host discover exactly what is callable, and
+//! `hematite_gl_unsupported_count` reports how many calls hit an unimplemented entry
+//! point. See `docs/KNOWN_LIMITATIONS.md`.
 //!
 //! # Panics across the boundary
 //! The release profile is `panic = "abort"`, so a panic aborts the process rather than
@@ -314,6 +318,81 @@ pub extern "C" fn hematite_fixed_function_ortho(
             }
         }
         STATUS_OK
+    })
+}
+
+// ---------------------------------------------------------------------------
+// GL/EGL frontend bridge
+// ---------------------------------------------------------------------------
+
+/// How many `gl*`/`egl*` entry points this library exports.
+///
+/// Every one of them has the signature `abi/gl_export.def` declares; how many of them do
+/// real work is a separate question that `docs/KNOWN_LIMITATIONS.md` answers.
+#[no_mangle]
+pub extern "C" fn hematite_gl_export_count() -> i32 {
+    hematite_gl_frontend::export_count() as i32
+}
+
+/// Resolve one exported entry point by name, or return null.
+///
+/// `name` must be a NUL-terminated UTF-8 string; the returned pointer is valid for the
+/// lifetime of the library and may be cast to the signature in the def file.
+#[no_mangle]
+pub extern "C" fn hematite_gl_proc_address(name: *const c_char) -> *mut c_void {
+    let Some(name) = c_string(name) else {
+        return std::ptr::null_mut();
+    };
+    hematite_gl_frontend::gen::procs::proc_address(&name)
+}
+
+/// How many calls reached an entry point that has no implementation.
+#[no_mangle]
+pub extern "C" fn hematite_gl_unsupported_count() -> u64 {
+    hematite_gl_frontend::context::unsupported_count()
+}
+
+/// Render the built-in demonstration scene through the real GL entry points.
+///
+/// `rgba_out` receives exactly `width * height * 4` bytes, bottom row first, matching
+/// `glReadPixels`. It needs no Vulkan driver: the scene is rasterized on the CPU, which
+/// makes it the cheapest end-to-end proof that the exported ABI produces pixels. If the
+/// buffer is too small, `required` receives the size it needs.
+#[no_mangle]
+pub extern "C" fn hematite_gl_render_demo(
+    width: u32,
+    height: u32,
+    rgba_out: *mut u8,
+    rgba_out_len: usize,
+    required: *mut usize,
+) -> c_int {
+    guarded(|| {
+        if rgba_out.is_null() || width == 0 || height == 0 {
+            return STATUS_INVALID_ARGUMENT;
+        }
+        let needed = (width as usize).saturating_mul(height as usize).saturating_mul(4);
+        if rgba_out_len < needed {
+            if !required.is_null() {
+                // SAFETY: `required` is caller-provided and non-null here.
+                unsafe { required.write_unaligned(needed) };
+            }
+            set_last_error("rgba_out smaller than width*height*4");
+            return STATUS_BUFFER_TOO_SMALL;
+        }
+        match hematite_gl_frontend::render_demo(width as usize, height as usize) {
+            Some(pixels) => {
+                // SAFETY: the length check above guarantees `rgba_out` holds `needed`
+                // bytes, and `pixels` is exactly that long.
+                unsafe {
+                    std::ptr::copy_nonoverlapping(pixels.as_ptr(), rgba_out, pixels.len());
+                }
+                STATUS_OK
+            }
+            None => {
+                set_last_error("GL frontend rejected the requested size");
+                STATUS_INVALID_ARGUMENT
+            }
+        }
     })
 }
 

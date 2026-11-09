@@ -384,3 +384,50 @@ and gives the Android build something real to ship while the frontend is written
 **Status.** VERIFIED on host; BUILT-BUT-UNTESTED for arm64. Panics abort in release builds
 by design (`panic = "abort"`), so a bug kills the launcher rather than unwinding through
 foreign frames; `catch_unwind` guards are live in development and test builds.
+
+---
+
+### D-025 — Export all 866 entry points; generate the thunks, hand-write the subset
+
+**Decision.** `xtask gen-abi` emits a `#[no_mangle]` definition for every entry point in
+`abi/gl_export.def` (`crates/hematite-gl-frontend/src/gen/exports.rs`). If `src/api.rs` or
+`src/egl.rs` defines the same name, the thunk forwards to it — so the compiler proves the
+implementation's signature matches the table. Otherwise the thunk calls
+`crate::unsupported`, which raises `GL_INVALID_OPERATION`, increments
+`hematite_gl_unsupported_count()` and returns the zero value of the declared return type.
+
+**Why.** LWJGL resolves entry points by name and calls whatever it gets, so a partial
+export list turns into a null-pointer call inside the launcher. Exporting everything, with
+honest accounting of what is not implemented, lets a host probe capability instead of
+guessing. Generation also keeps 866 signatures in exactly one place.
+
+**Alternatives.** Panicking stubs (a launcher probing capabilities would abort the process);
+fake success and plausible defaults (silently wrong pixels, the failure mode this project
+exists to avoid); hand-writing 866 signatures (unmaintainable, and nothing would check them
+against the table).
+
+### D-026 — `glCompileShader` fails loudly instead of pretending
+
+**Decision.** GLSL is not compiled. `glCompileShader` always leaves `GL_COMPILE_STATUS`
+false and writes an info log naming the reason, so `glLinkProgram` and `glUseProgram` cannot
+activate a shader-driven pipeline, and `glGetUniformLocation`/`glGetAttribLocation` return
+-1.
+
+**Why.** A program Hematite cannot honour would produce arbitrary wrong pixels, and the
+application would have no way to tell. Failing at compile time is the only honest option
+until a translator exists, and it leaves the fixed-function path — which really renders —
+usable.
+
+### D-027 — The GL frontend rasterizes on the CPU, not through the Vulkan backend
+
+**Decision.** `hematite-gl-frontend` owns a software rasterizer (clip, perspective-correct
+interpolation, depth, blend, scissor, culling) and a software EGL whose `eglSwapBuffers`
+publishes the frame to a snapshot; it does not call `hematite-vk-backend`.
+
+**Why.** It makes the GL path verifiable with no driver, no device and no window system —
+exactly the constraints of this environment — and it keeps the Vulkan path free to grow its
+own texture/depth/pipeline work without a half-finished bridge. Routing GL through Vulkan is
+tracked as ROADMAP step 2.2b, with the same `./build.sh gl` checks as the exit criterion.
+
+**Alternatives.** Bridging GL to Vulkan now (a large surface, unverifiable here); routing GL
+to a GLES driver (none is available in this environment).

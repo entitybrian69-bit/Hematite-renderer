@@ -3,6 +3,7 @@
 #
 #   ./build.sh check     native CPU checks: check, clippy -D warnings, fmt, tests, ABI
 #   ./build.sh abi       regenerate and validate the 866-symbol GL/EGL ABI
+#   ./build.sh gl        drive the exported GL/EGL ABI through ctypes and check pixels
 #   ./build.sh shaders   recompile the original GLSL to SPIR-V and compare with the
 #                        checked-in .spv files (fails if they drift apart)
 #   ./build.sh gpu       real Vulkan offscreen rendering against the SwiftShader driver
@@ -52,6 +53,7 @@ case "${1:-check}" in
         cargo clippy --locked --workspace --all-targets -- -D warnings
         cargo fmt --all -- --check
         cargo test --locked --workspace
+        bash "$PWD/build.sh" gl
         bash "$PWD/build.sh" abi
         ;;
     abi)
@@ -62,7 +64,12 @@ case "${1:-check}" in
         trap 'rm -f "$expected"' EXIT
         cp abi/expected_symbols.txt "$expected"
         cargo run --locked -p xtask -- gen-abi
+        # The generated files are checked in so a fresh checkout builds; regenerating and
+        # formatting must not change them, or the commit is stale.
+        cargo fmt -p hematite-gl-frontend
         cmp "$expected" abi/expected_symbols.txt
+        git diff --exit-code --stat -- abi/expected_symbols.txt \
+            crates/hematite-gl-frontend/src/gen
         mkdir -p target/abi-check
         for module in abi decls; do
             rustc --edition 2021 -D warnings --crate-type lib \
@@ -70,6 +77,10 @@ case "${1:-check}" in
                 "crates/hematite-gl-frontend/src/gen/$module.rs" \
                 -o "target/abi-check/$module.rlib"
         done
+        ;;
+    gl)
+        cargo build --locked -p hematite-plugin
+        python3 tools/test_gl_abi.py
         ;;
     shaders)
         require .cache/vulkan/glslang/package/dist/node-devel/glslang.wasm
@@ -101,7 +112,7 @@ case "${1:-check}" in
         python3 tools/verify_wasi.py
         ;;
     *)
-        echo "Usage: $0 [check|abi|shaders|gpu|android|apk|wasi]" >&2
+        echo "Usage: $0 [check|abi|gl|shaders|gpu|android|apk|wasi]" >&2
         exit 2
         ;;
 esac

@@ -10,6 +10,7 @@ members = [
     "crates/hematite-config",
     "crates/hematite-fixed-function",
     "crates/hematite-shader-cache",
+    "crates/hematite-gl-frontend",
     "crates/hematite-vk-backend",
     "crates/hematite-plugin",
     "crates/hematite-testharness",
@@ -33,6 +34,7 @@ hematite-ir = { path = "crates/hematite-ir" }
 hematite-config = { path = "crates/hematite-config" }
 hematite-fixed-function = { path = "crates/hematite-fixed-function" }
 hematite-shader-cache = { path = "crates/hematite-shader-cache" }
+hematite-gl-frontend = { path = "crates/hematite-gl-frontend" }
 
 # Release: smallest and fastest. `panic = "abort"` is not optional here: an unwind that
 # reached LWJGL across the FFI boundary would be undefined behaviour.

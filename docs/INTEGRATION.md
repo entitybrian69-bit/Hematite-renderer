@@ -52,7 +52,15 @@ the GL entry points, not merely the EGL ones.
 | `eglGetProcAddress` | Must resolve every extension Hematite advertises, and must return `NULL` for names it does not implement (that is legal and expected) |
 
 Unimplemented GL entry points must still **exist** and raise `GL_INVALID_OPERATION` (logged
-once) rather than being absent. That decision is recorded in `DECISIONS.md` D-002.
+once) rather than being absent. That decision is recorded in `DECISIONS.md` D-002, and the
+shipped library follows it: all 866 names are exported, the 749 without an implementation
+raise `GL_INVALID_OPERATION`, increment `hematite_gl_unsupported_count()` and remember their
+name for `hematite_last_error`-style diagnosis. `eglGetProcAddress` resolves exactly those
+866 names and returns `NULL` for anything else.
+
+A launcher can therefore load `libhematite.so` and probe it, but **GLSL is not compiled**:
+`glCompileShader` fails with an explanatory info log, so shader-driven GLES2 applications
+cannot reach a draw call. Only the fixed-function path renders.
 
 ### 2.2 EGL configuration expectations
 

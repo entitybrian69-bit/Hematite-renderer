@@ -9,28 +9,37 @@ it *is* the OpenGL implementation, and LWJGL resolves every `gl*` call against i
 
 ---
 
-## Project status: a real Vulkan path renders; it is still not a Minecraft renderer
+## Project status: the GL ABI is exported and fixed-function GL really renders
 
 A signed `dist/hematite-debug.apk` containing a cross-compiled `libhematite.so` is built by
-`./build.sh apk`. The library performs **real offscreen Vulkan rendering**, verified against
-the SwiftShader software driver by comparing driver pixels with an analytic reference.
+`./build.sh apk`. That library now exports **all 866 `gl*`/`egl*` entry points** with the
+signatures `abi/gl_export.def` declares, and 117 of them do real work on a software
+rasterizer: state, matrix stacks, buffer objects, client and VBO attribute arrays,
+immediate mode, textures (nearest and bilinear), depth test, blending, scissor, culling,
+clear and readback. `./build.sh gl` drives that ABI through `ctypes` — EGL bring-up, a
+`glClear`, an immediate-mode triangle, `glReadPixels`, `eglSwapBuffers` — and checks the
+pixels. A separate real Vulkan offscreen path is verified against SwiftShader.
 
-What that means precisely: **no OpenGL call is intercepted, nothing is presented to a
-screen, and no launcher can use this library as a renderer yet.** The 866 `gl*`/`egl*`
-exports do not exist, and the APK has never been installed on a device.
+What is still **not** true: **GLSL is not compiled** (`glCompileShader` reports failure on
+purpose), so shader-driven GLES2 applications — Minecraft included — cannot run; EGL
+publishes frames to a software backbuffer and **nothing reaches a window**; and the APK has
+never been installed on a device.
 
+- `hematite-gl-frontend`: the 866-symbol export surface, the GL state machine, the software
+  rasterizer and the software EGL (5 tests, plus 19 `ctypes` checks).
 - `hematite-vk-backend`: instance/device selection, offscreen render pass, pipeline,
   readback (3 tests + 5 driver checks per render).
-- `hematite-plugin`: the 8-function C ABI compiled into `libhematite.so` (5 tests, plus an
-  end-to-end host run through `ctypes`).
+- `hematite-plugin`: the 12-function `hematite_*` C ABI compiled into `libhematite.so`
+  (5 tests, plus an end-to-end host run through `ctypes`).
 - `hematite-testharness`: analytic pixel reference for real driver readback.
 - `hematite-ir` (14), `hematite-config` (16), `hematite-fixed-function` (25),
   `hematite-shader-cache` (10), `xtask` (7).
 
-**82 unit tests pass** on native Linux and under WASI; `./build.sh gpu` runs the additional
+**89 unit tests pass** on native Linux and under WASI; `./build.sh gpu` runs the additional
 real-driver suite. Cargo check, Clippy `-D warnings` and rustfmt pass. None of this
-establishes Minecraft, shader-pack or device compatibility. The GL/EGL frontend, GLES
-fallback and GLSL translation are **NOT-IMPLEMENTED**.
+establishes Minecraft, shader-pack or device compatibility. The GLSL translator, the GLES
+fallback backend, window presentation and 749 of the 866 entry points are
+**NOT-IMPLEMENTED**.
 
 See [`docs/STATUS_REPORT.md`](docs/STATUS_REPORT.md) for scoped verification evidence and
 [`docs/ENVIRONMENT.md`](docs/ENVIRONMENT.md) for reproducible toolchain setup.
@@ -68,7 +77,7 @@ LWJGL as both EGL and OpenGL. Two consequences drive the design:
 ```sh
 python3 abi/validate_abi.py     # check the table (works without a toolchain)
 cargo run -p xtask -- check-abi # same checks, from Rust
-cargo run -p xtask -- gen-abi   # emit gen/abi.rs, gen/decls.rs, abi/expected_symbols.txt
+cargo run -p xtask -- gen-abi   # emit gen/{abi,decls,exports,procs}.rs and the manifest
 ```
 
 ---
@@ -79,7 +88,8 @@ cargo run -p xtask -- gen-abi   # emit gen/abi.rs, gen/decls.rs, abi/expected_sy
 python3 tools/setup_native_rust.py    # pinned Rust 1.85.0 toolchain (see ENVIRONMENT.md)
 python3 tools/setup_android_tools.py  # zig, Android rust-std, SwiftShader, glslang, APK tools
 
-./build.sh check    # check + clippy -D warnings + fmt + 82 tests + 866-entry ABI checks
+./build.sh check    # check + clippy -D warnings + fmt + 89 tests + ABI and GL checks
+./build.sh gl       # drive the exported GL/EGL ABI through ctypes and check pixels
 ./build.sh shaders  # recompile GLSL and prove the checked-in SPIR-V matches
 ./build.sh gpu      # real Vulkan offscreen rendering against SwiftShader
 ./build.sh android  # cross-compile libhematite.so for aarch64-linux-android

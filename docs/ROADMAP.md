@@ -56,7 +56,9 @@ pack redistribution. This supersedes the earlier GLES-first draft.
 | --- | --- | --- |
 | 2.1 | **DONE.** Real instance/device capability selection, offscreen render pass, pipeline, vertex upload and readback (`hematite-vk-backend`) | `./build.sh gpu`: capability profile plus five analytic pixel checks on SwiftShader |
 | 2.1b | Depth/stencil, textures and samplers, blending, indexed draws, pipeline reuse, async submission | textured quad with checked readback; no per-draw reallocation |
-| 2.2 | GL frontend buffer/program/VAO operations feeding that executor | a triangle from real GL calls, not a fabricated screenshot |
+| 2.2 | **PARTIALLY DONE.** GL frontend: all 866 entry points exported, 117 implemented (state, matrices, buffers, arrays, immediate mode, textures, depth, blending, readback) on a software rasterizer, plus a software EGL | `./build.sh gl`: a triangle from real GL calls through `ctypes`, with checked pixels |
+| 2.2b | Route the GL frontend through the Vulkan executor instead of the CPU rasterizer | the same `./build.sh gl` scene read back from a Vulkan render pass |
+| 2.2c | GLSL: compile or translate the subset Minecraft needs, so `glCompileShader` can succeed | a two-shader program links and draws a checked quad |
 | 2.3 | Texture upload, sampler and indexed draws | textured quad with checked readback |
 | 2.4 | Android `ANativeWindow*`, surface, swapchain and EGL ownership | same scene presented on a device/emulator |
 | 2.5 | Validation-layer and lifetime/error tests | no validation errors in the synthetic scene |

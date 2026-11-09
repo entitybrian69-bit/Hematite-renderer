@@ -55,8 +55,10 @@ Dependency rule, enforced by `cargo-deny`-style review and by the workspace layo
 The backend boundary is `hematite-ir` only.
 
 **Implementation note (2026-11-09).** Of this diagram, `hematite-ir`, `hematite-config`,
-`hematite-fixed-function`, `hematite-shader-cache`, `hematite-vk-backend`,
-`hematite-testharness` and `hematite-plugin` (the C ABI compiled to `libhematite.so`) exist
+`hematite-fixed-function`, `hematite-shader-cache`, `hematite-gl-frontend` (the 866-symbol
+GL/EGL export surface, the GL state machine, the software rasterizer and a software EGL),
+`hematite-vk-backend`, `hematite-testharness` and `hematite-plugin` (the C ABI compiled to
+`libhematite.so`) exist
 and build; the rest is design. The Vulkan backend does **not** yet consume `hematite-ir`:
 it takes its own vertex struct, so the boundary above is still aspirational. The backend is
 offscreen-only — no surface, swapchain or presentation.

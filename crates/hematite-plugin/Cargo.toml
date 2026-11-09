@@ -4,11 +4,12 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
-description = "C ABI over the Hematite Vulkan backend, shipped inside the Android APK"
+description = "C ABI over the GL frontend and the Vulkan backend, shipped inside the Android APK"
 
 [dependencies]
 hematite-vk-backend.workspace = true
 hematite-fixed-function.workspace = true
+hematite-gl-frontend.workspace = true
 
 [lib]
 crate-type = ["cdylib", "rlib"]

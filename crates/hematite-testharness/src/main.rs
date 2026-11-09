@@ -38,6 +38,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         file.flush()?;
         println!("Actual Vulkan readback written to {}", path.display());
     }
-    println!("{} Vulkan checks passed. No Android device, window/swapchain, GL frontend, shader pack or performance verified.", report.passed.len());
+    println!(
+        "{} Vulkan checks passed. This run covers the offscreen Vulkan path only: no \
+         Android device, window/swapchain, shader pack or performance (the GL frontend \
+         has its own check, ./build.sh gl).",
+        report.passed.len()
+    );
     Ok(())
 }

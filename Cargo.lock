@@ -15,6 +15,13 @@ name = "hematite-fixed-function"
 version = "0.1.0"
 
 [[package]]
+name = "hematite-gl-frontend"
+version = "0.1.0"
+dependencies = [
+ "hematite-fixed-function",
+]
+
+[[package]]
 name = "hematite-ir"
 version = "0.1.0"
 
@@ -23,6 +30,7 @@ name = "hematite-plugin"
 version = "0.1.0"
 dependencies = [
  "hematite-fixed-function",
+ "hematite-gl-frontend",
  "hematite-vk-backend",
 ]
 

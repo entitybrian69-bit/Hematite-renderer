@@ -74,16 +74,30 @@ file repeats it so that a reader who opens only one document still sees it.
   RGB/alpha blending and full stencil masks/ops are not represented. Line width is quantized
   to eighths; this must not be advertised as arbitrary desktop GL precision. `SetState`
   allocates a boxed snapshot; no zero-allocation rendering claim is verified.
-- **ABI:** generated foreign declarations are signatures only, not exported implementations.
-  No `.so` or `eglGetProcAddress` exists. Header-level signature audit remains pending.
+- **ABI:** all 866 entry points are exported with their declared signatures and resolve
+  through `eglGetProcAddress`, but only 117 do real work; the other 749 record the call
+  (`hematite_gl_unsupported_count`) and return zeros. The table in `abi/gl_export.def` is
+  hand-curated, not audited against real GL headers, so a wrong parameter type in the table
+  would be reproduced faithfully by the compiler check that is supposed to catch drift.
 - **Android and backends:** the Vulkan backend renders offscreen only. There is no
   swapchain, surface, `ANativeWindow`, presentation, texture upload, depth/stencil,
   blending, MSAA, indexed draw, descriptor management, pipeline cache reuse, async
   submission or command-buffer recycling. Every render allocates a fresh image, buffers,
   render pass, pipeline, pool and fence, so the code path is a correctness harness and not
-  a frame loop. The plugin library exports 8 `hematite_*` functions and **none** of the 866
-  `gl*`/`egl*` symbols; a Pojav-derived launcher cannot load it as a renderer. Do not
-  install this APK expecting Minecraft or shader packs to run.
+  a frame loop. The plugin library exports 12 `hematite_*` functions and all 866
+  `gl*`/`egl*` symbols; the Vulkan path and the GL path do not talk to each other.
+- **GL frontend:** the fixed-function subset renders on a **software rasterizer** on the
+  CPU. GLSL is not compiled — `glCompileShader` always fails with an explanatory log, so
+  `glLinkProgram`/`glUseProgram` cannot activate a shader pipeline and any real GLES2
+  application, Minecraft above all, will not run. No stencil buffer, no multisampling, no
+  renderbuffers/FBOs, no instancing, no `glMapBuffer`, no point sprites, no compressed
+  textures, one texture unit honoured, lines are always one pixel wide, and
+  `glPolygonOffset`/`glHint`/`glTexEnvi` are accepted and ignored.
+- **EGL:** `eglGetDisplay`/`eglChooseConfig`/`eglCreateContext` and friends are a software
+  EGL. `eglCreateWindowSurface` accepts an `ANativeWindow*` but cannot query or lock it
+  (that needs the NDK, which is never linked), so a window surface behaves like a pbuffer:
+  `eglSwapBuffers` copies the frame into a snapshot and counts the swap, and **no pixels
+  ever reach a display**. Contexts are per-thread handles with no sharing.
 - **APK:** signed with a throwaway self-generated certificate, `targetSdkVersion 28` so
   the v1 (JAR) signature alone is acceptable, and verified only by apksigtool 0.1.0 (which
   calls itself a prototype) and androguard. No Play Store, no `bundletool`, no resources,

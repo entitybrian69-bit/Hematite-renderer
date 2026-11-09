@@ -92,6 +92,13 @@ def verify():
         execute(f"{crate}-tests.wasm", "--test-threads=1")
     shutil.copytree(ROOT / "xtask" / "src", GUEST / "src" / "xtask", dirs_exist_ok=True)
     shutil.copytree(ROOT / "abi", GUEST / "abi", dirs_exist_ok=True)
+    # `gen-abi` scans the frontend for hand-written entry points, so the two modules it
+    # reads have to exist in the guest even though nothing compiles them here.
+    frontend = GUEST / "crates" / "hematite-gl-frontend" / "src"
+    frontend.mkdir(parents=True, exist_ok=True)
+    for module in ["api.rs", "egl.rs"]:
+        shutil.copyfile(ROOT / "crates" / "hematite-gl-frontend" / "src" / module,
+                        frontend / module)
     rustc("-o", "/xtask.wasm", "/src/xtask/main.rs")
     rustc("--test", "-o", "/xtask-tests.wasm", "/src/xtask/main.rs")
     execute("xtask-tests.wasm", "--test-threads=1")
@@ -104,6 +111,16 @@ def verify():
     manifest = GUEST / "abi" / "expected_symbols.txt"
     if manifest.read_bytes() != (ROOT / "abi" / "expected_symbols.txt").read_bytes():
         raise RuntimeError("tracked symbol manifest differs from generated manifest")
+    # The generated exports are formatted by rustfmt in the repository, so compare
+    # structure rather than bytes: one #[no_mangle] definition per entry point, and the
+    # same number of by-name lookups.
+    exports = (frontend / "gen" / "exports.rs").read_text()
+    procs = (frontend / "gen" / "procs.rs").read_text()
+    expected = len(manifest.read_text().split())
+    if exports.count("#[no_mangle]") != expected:
+        raise RuntimeError(f"generated {exports.count('#[no_mangle]')} exports, want {expected}")
+    if procs.count(" as usize as *mut core::ffi::c_void,") != expected:
+        raise RuntimeError("by-name lookup does not cover every entry point")
     # Exercise the actual command's nonzero exit, not a pipeline's exit status.
     table = GUEST / "abi" / "gl_export.def"
     original = table.read_bytes()

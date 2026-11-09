@@ -21,33 +21,35 @@ APK. Provenance and digests are in `ENVIRONMENT.md`. Nothing here is a supply-ch
 | Check | Result |
 | --- | --- |
 | `./build.sh check` (check, Clippy `-D warnings`, fmt, tests, ABI) | VERIFIED, passes |
-| `cargo test --locked --workspace` | VERIFIED, 82 unit tests pass, 1 test ignored by default |
+| `cargo test --locked --workspace` | VERIFIED, 89 unit tests pass, 1 test ignored by default |
 | `./build.sh gpu` → the ignored `real_vulkan_readback_suite` | VERIFIED against SwiftShader: 5 analytic checks per renderer, two renderer instances, no leaked failure |
 | `./build.sh shaders` | VERIFIED, checked-in SPIR-V byte-identical to recompiled GLSL (976/380 bytes) |
 | Host `libhematite_plugin.so` through its C ABI (Python `ctypes`, SwiftShader) | VERIFIED: abi version, device name, 16×12 render with correct clear/interpolated pixels, short-buffer status, `glOrtho` matrix, destroy |
-| `./build.sh android` | VERIFIED structurally: ELF64 AArch64 `ET_DYN`, 398 608 bytes, `DT_NEEDED` = libdl/libunwind/libc, `p_align` 16384, 8 exports, 45 bionic-resolved symbols |
-| `./build.sh apk` | VERIFIED: `dist/hematite-debug.apk` (432 049 bytes); manifest parsed by androguard; attribute IDs match AOSP `public.xml`; `.so` stored and 16 KB aligned; `apksigtool verify` prints `v2 verified` |
-| `python3 tools/verify_wasi.py` | VERIFIED, 82 tests + ABI checks under WASI, duplicate export rejected with exit 1 |
+| `./build.sh gl` → the exported GL/EGL ABI through `ctypes` | VERIFIED: 866/866 entry points resolve by name; EGL display/config/pbuffer/context/make-current; `glClear` + `glReadPixels` give the exact clear colour; an immediate-mode triangle covers the centre pixel `[255,0,0,255]`; `eglSwapBuffers` publishes; demo scene non-flat; short buffer reports status 3; an unimplemented call increments the counter. 19 checks, 0 failures |
+| `./build.sh android` | VERIFIED structurally: ELF64 AArch64 `ET_DYN`, 762 392 bytes, `DT_NEEDED` = libdl/libunwind/libm/libc, `p_align` 16384, 12 `hematite_*` exports, **866/866 `gl*`/`egl*` exports**, 50 bionic-resolved symbols |
+| `./build.sh apk` | VERIFIED: `dist/hematite-debug.apk` (794 801 bytes); manifest parsed by androguard; attribute IDs match AOSP `public.xml`; `.so` stored and 16 KB aligned; `apksigtool verify` prints `v2 verified` |
+| `python3 tools/verify_wasi.py` | VERIFIED, 89 tests + ABI checks under WASI, duplicate export rejected with exit 1 |
 | `python3 abi/validate_abi.py`, `xtask check-abi`/`gen-abi` | VERIFIED, 866 internally consistent entries |
 | Installation on an Android device | NOT-VERIFIED: no device, emulator or `adb` in this environment |
 | Validation layers (`VK_LAYER_KHRONOS_validation`) | NOT-IMPLEMENTED: not present in this environment; correctness relies on the analytic pixel checks |
 | Hardware GPU rendering | NOT-VERIFIED: the only driver used is SwiftShader (CPU, reports Vulkan 1.3.0) |
-| CI on GitHub | Workflow exists with CPU + Android + APK jobs; no green remote run is claimed |
+| CI on GitHub | VERIFIED: the four-job workflow (CPU, SPIR-V, SwiftShader, cross-compile + signed APK) is green on the branch; artifacts `hematite-debug-apk` and `swiftshader-readback` are published |
 
 ## 2. Component status
 
 | Component | Status | Evidence / missing work |
 | --- | --- | --- |
 | `hematite-vk-backend` | VERIFIED (offscreen only) | Instance/device selection, RAII ownership, RGBA8 render pass, graphics pipeline, vertex upload, transfer readback. 3 unit tests plus 5 driver checks per render on SwiftShader. No swapchain, textures, depth/stencil, blending, MSAA, async submission, descriptor-driven draws or command reuse. Each render reallocates everything; no performance claim. |
-| `hematite-plugin` (`libhematite.so`) | VERIFIED on host, BUILT-BUT-UNTESTED on Android | 8 exported `hematite_*` functions over the backend and `Mat4::ortho`; 5 unit tests; exercised end-to-end on x86_64 through `ctypes`. The arm64 build is structurally verified only — never loaded by a loader. |
+| `hematite-gl-frontend` | VERIFIED on host (CPU rasterizer) | 866 generated `#[no_mangle]` exports, 117 forwarding to hand-written implementations that the compiler type-checks against the def file. 5 unit tests (demo scene pixels, depth ordering, readback, symbol addresses, unsupported accounting) plus 19 `ctypes` checks through the real ABI. No GLSL, no window, no stencil, no MSAA. |
+| `hematite-plugin` (`libhematite.so`) | VERIFIED on host, BUILT-BUT-UNTESTED on Android | 12 exported `hematite_*` functions over the GL frontend, the backend and `Mat4::ortho`; 5 unit tests; exercised end-to-end on x86_64 through `ctypes`. The arm64 build is structurally verified only — never loaded by a loader. |
 | `hematite-testharness` | VERIFIED | Analytic reference (barycentric interpolation, coverage bounds, 1×1 and repeat renders) compared against driver pixels; PPM writer for the actual readback. |
 | `hematite-ir` | VERIFIED (CPU data model only) | 14 tests. No backend consumes these commands yet; the Vulkan backend takes its own vertex struct. |
 | `hematite-config` | VERIFIED (CPU resolution only) | 16 tests. No runtime effect: the backend reads no configuration. |
 | `hematite-fixed-function` | VERIFIED (CPU modules only) | 25 tests; `Mat4::ortho` is additionally reachable through the plugin ABI, and immediate quad conversion feeds a real Vulkan draw in the harness. No lighting, texenv, fog, display lists, attribute stacks or client arrays. |
 | `hematite-shader-cache` | VERIFIED (records/disk IO only) | 10 tests. Still no shader compiler or pipeline consuming it. |
-| `xtask` | VERIFIED | 7 tests; 866-entry generation and invalid-input rejection. |
-| GL/EGL ABI | VERIFIED as data, NOT-IMPLEMENTED as exports | 820 GL + 46 EGL entries. The shipped library exports none of them. |
-| GL frontend / EGL lifecycle | NOT-IMPLEMENTED | No context ownership, GL object model, dispatch, error state or `eglGetProcAddress`. **This is why no launcher can use the APK.** |
+| `xtask` | VERIFIED | 7 tests; 866-entry generation (table, declarations, exports, by-name lookup) and invalid-input rejection. |
+| GL/EGL ABI | VERIFIED as exports | 820 GL + 46 EGL entries; the arm64 library exports 866/866 (checked by `tools/inspect_library.py` and `tools/verify_apk.py`), and every name resolves through `hematite_gl_proc_address`. |
+| GL frontend / EGL lifecycle | PARTIALLY IMPLEMENTED, VERIFIED on host | Error state, capability toggles, matrix stacks, buffer objects, attribute arrays, immediate mode, textures, depth, blending, scissor, culling, readback; EGL display/config/surface/context/make-current/swap on a software backbuffer. 749 entry points only record the call. **GLSL is not compiled, so shader-driven applications still cannot run.** |
 | GLES fallback backend | NOT-IMPLEMENTED | No EGL/GLES integration. |
 | GLSL translator / shader packs | NOT-IMPLEMENTED | Two embedded synthetic shaders exist as SPIR-V; no preprocessor, rewrite, reflection or pack execution. |
 | Quirks / diagnostics / fuzz | NOT-IMPLEMENTED | Research/design only. |

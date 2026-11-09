@@ -40,6 +40,8 @@ EXPECTED_EXPORTS = {
     "hematite_abi_version", "hematite_status_string", "hematite_last_error",
     "hematite_plugin_create", "hematite_plugin_destroy", "hematite_plugin_device_name",
     "hematite_plugin_render_offscreen", "hematite_fixed_function_ortho",
+    "hematite_gl_export_count", "hematite_gl_proc_address", "hematite_gl_render_demo",
+    "hematite_gl_unsupported_count",
 }
 FORBIDDEN = {"__errno_location", "stderr", "stdout", "__progname", "pthread_rwlock_rdlock"}
 
@@ -122,7 +124,13 @@ def verify_library() -> None:
     aligns = {header["align"] for header in parsed["program_headers"] if header["type"] == 1}
     check(aligns == {16384}, f"PT_LOAD p_align = {sorted(aligns)}")
     undefined, defined = elf.symbol_table(parsed, elf.SHT_DYNSYM)
-    check(EXPECTED_EXPORTS <= set(defined), f"all {len(EXPECTED_EXPORTS)} hematite_* exports present")
+    missing = sorted(EXPECTED_EXPORTS - set(defined))
+    check(not missing, f"all {len(EXPECTED_EXPORTS)} hematite_* exports present "
+                       f"({missing or 'none missing'})")
+    expected_gl = set((ROOT / "abi" / "expected_symbols.txt").read_text().split())
+    missing_gl = sorted(expected_gl - set(defined))
+    check(not missing_gl, f"{len(expected_gl) - len(missing_gl)}/{len(expected_gl)} "
+                          f"gl*/egl* entry points exported ({missing_gl[:5] or 'none missing'})")
     forbidden = FORBIDDEN & set(undefined)
     check(not forbidden, f"no non-bionic undefined symbols (checked {sorted(FORBIDDEN)})")
     print(f"  info: {len(blob)} bytes, {len(set(undefined))} symbols resolved by bionic at load")
