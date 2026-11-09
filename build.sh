@@ -89,8 +89,11 @@ case "${1:-check}" in
     gpu)
         require .cache/vulkan/driver/libvk_swiftshader.so
         require .cache/vulkan/driver/libvulkan.so.1
-        cargo test --locked -p hematite-testharness -- --ignored --exact \
-            tests::real_vulkan_readback_suite --nocapture
+        # Every driver-backed suite: the backend's persistent session (pipeline cache,
+        # rings, async builds), and the harness checks that the SPIR-V compiled from GLSL is
+        # accepted by a real Vulkan implementation.
+        cargo test --locked -p hematite-vk-backend -- --ignored --nocapture
+        cargo test --locked -p hematite-testharness -- --ignored --nocapture
         cargo run --locked -p hematite-testharness -- \
             --loader "$PWD/.cache/vulkan/driver/libvulkan.so.1" \
             --output "$PWD/target/triangle.ppm"

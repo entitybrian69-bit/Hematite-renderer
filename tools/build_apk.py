@@ -79,7 +79,26 @@ ATTR_IDS = {
     "debuggable": 0x0101000F,
     "extractNativeLibs": 0x010104EA,
     "allowBackup": 0x01010280,
+    "name": 0x01010003,
+    "value": 0x01010024,
+    "resource": 0x01010025,
+    "exported": 0x01010010,
 }
+
+# The FCL/Zalith renderer-plugin contract, as read by
+# ZalithLauncher2 `game/plugin/renderer/RendererPluginManager.kt` (lines 88-145):
+#   metaData.getBoolean("fclPlugin") || metaData.getBoolean("zalithRendererPlugin")
+#   metaData.getString("renderer")  -> "<id>:<gl library>:<egl library>"
+#   metaData.getString("des")       -> display name
+#   metaData.getString("pojavEnv")  -> "KEY=VALUE:KEY=VALUE"
+# Plugins are discovered by PluginLoader.kt:60-64 with
+# queryIntentActivities(Intent(ACTION_MAIN)), so an <activity> with an ACTION_MAIN
+# filter is mandatory even though the launcher never starts it. See
+# docs/PLUGIN_CONTRACT.md for the full citation list.
+PLUGIN_ID = "hematite"
+NATIVE_LIBRARY = "libhematite.so"
+PLUGIN_ACTIVITY = "org.hematite.renderer.PluginInfo"
+PLUGIN_ENV = "POJAV_RENDERER=hematite:LIBGL_ES=2:LIBGL_MIPMAP=3:LIBGL_NOERROR=1"
 
 
 @dataclass
@@ -208,8 +227,8 @@ def manifest() -> Element:
     """The manifest this APK ships. Values match docs and the real library contents."""
     return Element("manifest", [
         Attribute("package", "org.hematite.renderer", android=False),
-        Attribute("versionCode", 1, "int"),
-        Attribute("versionName", "0.1.0"),
+        Attribute("versionCode", 3, "int"),
+        Attribute("versionName", "0.3.0"),
     ], [
         Element("uses-sdk", [
             Attribute("minSdkVersion", 21, "int"),
@@ -222,6 +241,39 @@ def manifest() -> Element:
             Attribute("debuggable", True, "bool"),
             Attribute("allowBackup", False, "bool"),
             Attribute("extractNativeLibs", True, "bool"),
+        ], [
+            # Discovery only: PluginLoader queries ACTION_MAIN and reads this package's
+            # meta-data. The class does not exist (hasCode=false, no dex), so starting
+            # the activity would fail; the launcher never starts it.
+            Element("activity", [
+                Attribute("name", PLUGIN_ACTIVITY),
+                Attribute("exported", True, "bool"),
+                Attribute("label", "Hematite Renderer plugin"),
+            ], [
+                Element("intent-filter", [], [
+                    Element("action", [
+                        Attribute("name", "android.intent.action.MAIN"),
+                    ]),
+                ]),
+            ]),
+            Element("meta-data", [
+                Attribute("name", "fclPlugin"),
+                # A boolean typed value, not the string "true": Bundle.getBoolean only
+                # reads TYPE_INT_BOOLEAN.
+                Attribute("value", True, "bool"),
+            ]),
+            Element("meta-data", [
+                Attribute("name", "renderer"),
+                Attribute("value", f"{PLUGIN_ID}:{NATIVE_LIBRARY}:{NATIVE_LIBRARY}"),
+            ]),
+            Element("meta-data", [
+                Attribute("name", "des"),
+                Attribute("value", "Hematite (bring-up: no GLSL, no presentation)"),
+            ]),
+            Element("meta-data", [
+                Attribute("name", "pojavEnv"),
+                Attribute("value", PLUGIN_ENV),
+            ]),
         ]),
     ])
 

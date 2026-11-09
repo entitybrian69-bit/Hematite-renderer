@@ -77,6 +77,29 @@ mod dynamic {
     }
 }
 
+/// A [`Context`] that may be shared with another thread.
+///
+/// ash handles are Vulkan dispatch handles: a function-pointer table plus an opaque
+/// `VkDevice`. The Vulkan specification requires implementations to make such dispatch
+/// objects thread-safe, so reading them from several threads is sound. What is *not*
+/// thread-safe is calling commands on the same object concurrently, and this renderer
+/// never does: the session records into its own command buffer on the calling thread while
+/// the pipeline worker only creates pipelines, which touch no shared mutable state.
+pub(crate) struct Shared(pub(crate) Context);
+
+// SAFETY: see the type documentation. Destruction happens once, on the owning thread,
+// after the worker's sender has been dropped and every job has finished.
+unsafe impl Send for Shared {}
+unsafe impl Sync for Shared {}
+
+impl std::ops::Deref for Shared {
+    type Target = Context;
+
+    fn deref(&self) -> &Context {
+        &self.0
+    }
+}
+
 pub(crate) struct Context {
     pub(crate) instance: ash::Instance,
     pub(crate) device: ash::Device,
@@ -217,6 +240,7 @@ impl Context {
                     pipeline_cache_uuid: properties.pipeline_cache_uuid,
                     device_type: properties.device_type,
                     max_image_dimension_2d: properties.limits.max_image_dimension2_d,
+                    max_push_constant_size: properties.limits.max_push_constants_size,
                     geometry_shader_supported: features.geometry_shader != 0,
                     tessellation_shader_supported: features.tessellation_shader != 0,
                     extensions,

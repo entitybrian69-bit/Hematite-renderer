@@ -237,6 +237,24 @@ pub const GL_COMPILE_STATUS: u32 = 0x8B81;
 pub const GL_LINK_STATUS: u32 = 0x8B82;
 /// Info log length.
 pub const GL_INFO_LOG_LENGTH: u32 = 0x8B84;
+/// Validate result.
+pub const GL_VALIDATE_STATUS: u32 = 0x8B83;
+/// Delete flag on a shader or program object.
+pub const GL_DELETE_STATUS: u32 = 0x8B80;
+/// Number of shaders attached to a program.
+pub const GL_ATTACHED_SHADERS: u32 = 0x8B85;
+/// Number of active uniforms in a program.
+pub const GL_ACTIVE_UNIFORMS: u32 = 0x8B86;
+/// Longest active uniform name, including the terminator.
+pub const GL_ACTIVE_UNIFORM_MAX_LENGTH: u32 = 0x8B87;
+/// Length of the source a shader object holds.
+pub const GL_SHADER_SOURCE_LENGTH: u32 = 0x8B88;
+/// Number of active attributes in a program.
+pub const GL_ACTIVE_ATTRIBUTES: u32 = 0x8B89;
+/// Longest active attribute name, including the terminator.
+pub const GL_ACTIVE_ATTRIBUTE_MAX_LENGTH: u32 = 0x8B8A;
+/// The stage a shader object was created for.
+pub const GL_SHADER_TYPE: u32 = 0x8B4F;
 
 // EGL.
 /// Success.

@@ -15,8 +15,11 @@
 //! # Honesty about scope
 //! The fixed-function path is real: clear, matrices, arrays, immediate mode, textures,
 //! depth, blending, scissor, culling and readback all produce pixels that tests check.
-//! GLSL is **not** compiled, stencil and multisampling do not exist, and EGL publishes
-//! frames to a software backbuffer rather than to a window. See `docs/KNOWN_LIMITATIONS.md`.
+//! GLSL **is** compiled — `glCompileShader` translates it to SPIR-V through
+//! `hematite-glsl` — but the compiled stages are not yet executed: draws still run the
+//! fixed-function path until the front end is routed through the Vulkan backend.
+//! Stencil and multisampling do not exist, and EGL publishes frames to a software
+//! backbuffer rather than to a window. See `docs/KNOWN_LIMITATIONS.md`.
 
 #![deny(unsafe_op_in_unsafe_fn)]
 // Every exported entry point is a safe `extern "C"` function, because a C caller cannot
@@ -285,6 +288,127 @@ mod tests {
         let pixels = framebuffer_rgba(16, 16).expect("readback");
         let offset = (8 * 16 + 8) * 4;
         assert_eq!(pixels[offset], 255, "the nearer triangle must win");
+    }
+
+    /// A shader that compiles must report success and produce SPIR-V.
+    #[test]
+    fn compile_link_and_use_a_shader_program() {
+        reset_context(8, 8);
+        let vertex = compile_shader(
+            GL_VERTEX_SHADER,
+            "#version 120\nattribute vec4 position;\nattribute vec2 uv;\nvarying vec2 texcoord;\n\
+             uniform mat4 mvp;\nvoid main() { texcoord = uv; gl_Position = mvp * position; }\n",
+        );
+        let fragment = compile_shader(
+            GL_FRAGMENT_SHADER,
+            "#version 120\nvarying vec2 texcoord;\nuniform sampler2D diffuse;\n\
+             void main() { gl_FragColor = texture2D(diffuse, texcoord); }\n",
+        );
+        let program = api::glCreateProgram();
+        api::glAttachShader(program, vertex);
+        api::glAttachShader(program, fragment);
+        api::glLinkProgram(program);
+        assert_eq!(link_status(program), 1, "link status: {}", program_log(program));
+        assert_eq!(api::glGetAttribLocation(program, c"position".as_ptr()), 0);
+        assert_eq!(api::glGetAttribLocation(program, c"uv".as_ptr()), 1);
+        assert!(api::glGetUniformLocation(program, c"mvp".as_ptr()) >= 0);
+        assert!(api::glGetUniformLocation(program, c"diffuse".as_ptr()) >= 0);
+        assert_eq!(api::glGetUniformLocation(program, c"absent".as_ptr()), -1);
+        api::glUseProgram(program);
+        assert_eq!(api::glGetError(), GL_NO_ERROR);
+        assert_eq!(context::with(|ctx| ctx.current_program), Some(program));
+    }
+
+    /// A shader that cannot compile must fail loudly, with a log an application can show.
+    #[test]
+    fn a_broken_shader_fails_to_compile_and_to_link() {
+        reset_context(8, 8);
+        let (vertex, status) =
+            try_compile(GL_VERTEX_SHADER, "#version 120\nvoid main() { int = ; }\n");
+        assert_eq!(status, 0, "the broken shader must not compile");
+        let log = shader_log(vertex);
+        assert!(!log.trim().is_empty(), "the info log must explain the failure");
+
+        let program = api::glCreateProgram();
+        api::glAttachShader(program, vertex);
+        api::glLinkProgram(program);
+        assert_eq!(link_status(program), 0);
+        api::glUseProgram(program);
+        assert_eq!(api::glGetError(), GL_INVALID_OPERATION, "an unlinked program cannot be used");
+    }
+
+    /// `glBindAttribLocation` before linking must decide the attribute locations.
+    #[test]
+    fn bound_attribute_locations_survive_linking() {
+        reset_context(8, 8);
+        let vertex = compile_shader(
+            GL_VERTEX_SHADER,
+            "#version 120\nattribute vec4 position;\nattribute vec2 uv;\n\
+             void main() { gl_Position = position + vec4(uv, 0.0, 0.0); }\n",
+        );
+        let fragment = compile_shader(
+            GL_FRAGMENT_SHADER,
+            "#version 120\nvoid main() { gl_FragColor = vec4(1.0); }\n",
+        );
+        let program = api::glCreateProgram();
+        api::glBindAttribLocation(program, 7, c"uv".as_ptr());
+        api::glAttachShader(program, vertex);
+        api::glAttachShader(program, fragment);
+        api::glLinkProgram(program);
+        assert_eq!(link_status(program), 1, "link status: {}", program_log(program));
+        assert_eq!(api::glGetAttribLocation(program, c"uv".as_ptr()), 7);
+    }
+
+    /// Compile a shader through the real entry points and assert it succeeded.
+    fn compile_shader(stage: u32, source: &str) -> u32 {
+        let (shader, status) = try_compile(stage, source);
+        assert_eq!(status, 1, "compile failed: {}", shader_log(shader));
+        shader
+    }
+
+    /// Compile a shader and report whether it worked, for the failure tests.
+    fn try_compile(stage: u32, source: &str) -> (u32, i32) {
+        let shader = api::glCreateShader(stage);
+        assert_ne!(shader, 0);
+        let text = std::ffi::CString::new(source).expect("source has no NUL");
+        let pointer: *const i8 = text.as_ptr();
+        api::glShaderSource(shader, 1, &pointer, std::ptr::null());
+        api::glCompileShader(shader);
+        let mut status = 0;
+        api::glGetShaderiv(shader, GL_COMPILE_STATUS, &mut status);
+        (shader, status)
+    }
+
+    fn shader_log(shader: u32) -> String {
+        let mut length = 0;
+        api::glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &mut length);
+        let mut buffer = vec![0u8; length.max(1) as usize + 1];
+        api::glGetShaderInfoLog(
+            shader,
+            buffer.len() as i32,
+            &mut length,
+            buffer.as_mut_ptr().cast(),
+        );
+        String::from_utf8_lossy(&buffer[..length.max(0) as usize]).into_owned()
+    }
+
+    fn program_log(program: u32) -> String {
+        let mut length = 0;
+        api::glGetProgramiv(program, GL_INFO_LOG_LENGTH, &mut length);
+        let mut buffer = vec![0u8; length.max(1) as usize + 1];
+        api::glGetProgramInfoLog(
+            program,
+            buffer.len() as i32,
+            &mut length,
+            buffer.as_mut_ptr().cast(),
+        );
+        String::from_utf8_lossy(&buffer[..length.max(0) as usize]).into_owned()
+    }
+
+    fn link_status(program: u32) -> i32 {
+        let mut status = 0;
+        api::glGetProgramiv(program, GL_LINK_STATUS, &mut status);
+        status
     }
 
     /// `glReadPixels` and the raw framebuffer must agree.

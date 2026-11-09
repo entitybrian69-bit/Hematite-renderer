@@ -127,6 +127,7 @@ docs/           research, architecture, decisions, status, limitations, roadmap
 
 | Document | Contents |
 | --- | --- |
+| [`docs/PLUGIN_CONTRACT.md`](docs/PLUGIN_CONTRACT.md) | The exact FCL/Zalith v1 renderer-plugin contract this APK implements, cited to launcher source by file and line |
 | [`docs/RESEARCH.md`](docs/RESEARCH.md) | The launcher plugin contract, read out of source; the renderers Hematite is measured against; what Minecraft actually uses; the Android GPU landscape |
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Module layout, threading model, frame lifecycle, shader pipeline, cache layout |
 | [`docs/DECISIONS.md`](docs/DECISIONS.md) | Decisions, alternatives and reasons; implemented vs planned scope is explicit |

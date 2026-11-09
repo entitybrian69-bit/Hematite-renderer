@@ -8,6 +8,7 @@ description = "Analytic offscreen Vulkan readback tests, not a GL conformance ha
 
 [dependencies]
 hematite-vk-backend.workspace = true
+hematite-glsl.workspace = true
 hematite-fixed-function.workspace = true
 
 [lints.rust]

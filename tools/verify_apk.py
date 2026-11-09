@@ -61,12 +61,65 @@ def verify_manifest() -> None:
     print("manifest (androguard):")
     apk = AndroguardAPK(str(APK))
     check(apk.get_package() == "org.hematite.renderer", f"package = {apk.get_package()}")
-    check(apk.get_androidversion_code() == "1", f"versionCode = {apk.get_androidversion_code()}")
-    check(apk.get_androidversion_name() == "0.1.0", f"versionName = {apk.get_androidversion_name()}")
+    check(apk.get_androidversion_code() == "3", f"versionCode = {apk.get_androidversion_code()}")
+    check(apk.get_androidversion_name() == "0.3.0", f"versionName = {apk.get_androidversion_name()}")
     check(apk.get_min_sdk_version() == "21", f"minSdkVersion = {apk.get_min_sdk_version()}")
     check(apk.get_target_sdk_version() == "28", f"targetSdkVersion = {apk.get_target_sdk_version()}")
-    check(not apk.get_activities(), "no activities declared (this is not a runnable app)")
     check(LIBRARY in apk.get_files(), f"{LIBRARY} is listed in the archive")
+
+
+def verify_plugin_contract() -> None:
+    """Check the manifest against what the launcher actually reads.
+
+    Every assertion below comes from ZalithLauncher2 source, cited in
+    docs/PLUGIN_CONTRACT.md: discovery needs an ACTION_MAIN activity
+    (PluginLoader.kt:60-64), and the v1 renderer contract needs `fclPlugin` as a
+    boolean plus the `renderer` / `des` / `pojavEnv` strings
+    (RendererPluginManager.kt:88-145).
+    """
+    from androguard.core.apk import APK as AndroguardAPK
+    from build_apk import NATIVE_LIBRARY, PLUGIN_ENV, PLUGIN_ID
+    print("FCL/Zalith renderer-plugin contract:")
+    xml = AndroguardAPK(str(APK)).get_android_manifest_xml()
+    ns = "{http://schemas.android.com/apk/res/android}"
+
+    actions = [action.get(f"{ns}name")
+               for action in xml.iter("action")]
+    check("android.intent.action.MAIN" in actions,
+          f"an activity declares ACTION_MAIN so queryIntentActivities finds it ({actions})")
+
+    meta = {element.get(f"{ns}name"): element for element in xml.iter("meta-data")}
+    check(set(meta) >= {"fclPlugin", "renderer", "des", "pojavEnv"},
+          f"meta-data keys present: {sorted(meta)}")
+
+    flag = meta.get("fclPlugin")
+    # TYPE_INT_BOOLEAN (0x12) is what Bundle.getBoolean reads; a string would be false.
+    check(flag is not None and flag.get(f"{ns}value") == "true",
+          f"fclPlugin = {flag.get(f'{ns}value') if flag is not None else 'absent'}")
+
+    def value_of(key: str) -> str:
+        element = meta.get(key)
+        return "" if element is None else (element.get(f"{ns}value") or "")
+
+    renderer = value_of("renderer")
+    parts = renderer.split(":")
+    check(parts[:1] == [PLUGIN_ID], f"renderer id = {parts[:1]}")
+    check(len(parts) == 3, f"renderer = {renderer} (id:gl:egl)")
+    with zipfile.ZipFile(APK) as archive:
+        for name in parts[1:]:
+            check(f"lib/arm64-v8a/{name}" in archive.namelist(),
+                  f"declared library lib/arm64-v8a/{name} is in the archive")
+    check(parts[1:2] == [NATIVE_LIBRARY], f"GL library = {parts[1:2]}")
+
+    des = value_of("des")
+    check(bool(des.strip()), f"des = {des!r}")
+
+    env = value_of("pojavEnv")
+    check(env == PLUGIN_ENV, f"pojavEnv = {env!r}")
+    parsed = dict(pair.split("=", 1) for pair in env.split(":") if "=" in pair)
+    check(parsed.get("POJAV_RENDERER") == PLUGIN_ID,
+          f"POJAV_RENDERER = {parsed.get('POJAV_RENDERER')}")
+    check(parsed.get("LIBGL_ES") in ("2", "3"), f"LIBGL_ES = {parsed.get('LIBGL_ES')}")
 
 
 def verify_resource_ids() -> None:
@@ -148,11 +201,18 @@ def verify_signatures() -> str:
 
 
 def main() -> int:
+    # androguard logs every AXML chunk at DEBUG through loguru; keep the report readable.
+    try:
+        from loguru import logger
+        logger.remove()
+    except ImportError:
+        pass
     if not APK.is_file():
         raise SystemExit(f"{APK} is missing; run ./build.sh apk first")
     print(f"verifying {APK} ({APK.stat().st_size} bytes)")
     failures = []
-    for step in (verify_manifest, verify_resource_ids, verify_layout, verify_library,
+    for step in (verify_manifest, verify_plugin_contract, verify_resource_ids, verify_layout,
+                 verify_library,
                  verify_signatures):
         try:
             step()

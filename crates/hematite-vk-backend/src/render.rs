@@ -253,13 +253,25 @@ impl<'a> Frame<'a> {
         Ok(())
     }
 
-    fn pipeline(&mut self, width: u32, height: u32) -> Result<(), Error> {
-        let vertex =
+    /// Build the pipeline, optionally from caller-supplied SPIR-V instead of the
+    /// checked-in offscreen shaders. This is how a shader compiled from GLSL by
+    /// `hematite-glsl` gets executed by a real driver.
+    fn pipeline(
+        &mut self,
+        width: u32,
+        height: u32,
+        shaders: Option<(&[u32], &[u32])>,
+    ) -> Result<(), Error> {
+        let builtin_vertex =
             ash::util::read_spv(&mut Cursor::new(include_bytes!("../shaders/offscreen.vert.spv")))
                 .map_err(|_| Error::InvalidInput("invalid built-in vertex SPIR-V"))?;
-        let fragment =
+        let builtin_fragment =
             ash::util::read_spv(&mut Cursor::new(include_bytes!("../shaders/offscreen.frag.spv")))
                 .map_err(|_| Error::InvalidInput("invalid built-in fragment SPIR-V"))?;
+        let (vertex, fragment) = match shaders {
+            Some((vertex, fragment)) => (vertex.to_vec(), fragment.to_vec()),
+            None => (builtin_vertex, builtin_fragment),
+        };
         let vert_info = vk::ShaderModuleCreateInfo::default().code(&vertex);
         let frag_info = vk::ShaderModuleCreateInfo::default().code(&fragment);
         // SAFETY: aligned SPIR-V words generated from the checked-in original shader sources.
@@ -544,6 +556,138 @@ impl Drop for Frame<'_> {
     }
 }
 
+/// Ask the driver to build a graphics pipeline out of two SPIR-V modules.
+///
+/// Creating a pipeline is what forces a driver to actually process the shader
+/// interface: `vkCreateShaderModule` alone is accepted by some drivers without
+/// looking past the header (SwiftShader does), so this is the check that rejects a
+/// module the driver cannot use. Everything created here is destroyed again and
+/// nothing is drawn.
+///
+/// The shaders must take no vertex input and write a single colour attachment, which
+/// is what the fixed-colour probes in the test suite use.
+pub(crate) fn validate_pipeline(
+    context: &Context,
+    vertex: &[u32],
+    fragment: &[u32],
+) -> Result<(), Error> {
+    let device = &context.device;
+    let vertex_info = vk::ShaderModuleCreateInfo::default().code(vertex);
+    let fragment_info = vk::ShaderModuleCreateInfo::default().code(fragment);
+    // SAFETY: both word slices outlive the calls and the modules are destroyed below.
+    let vertex_module = unsafe { device.create_shader_module(&vertex_info, None) }
+        .map_err(|error| Error::Vulkan("create vertex shader module", error))?;
+    let fragment_module = match unsafe { device.create_shader_module(&fragment_info, None) } {
+        Ok(module) => module,
+        Err(error) => {
+            // SAFETY: the vertex module was created and is not used again.
+            unsafe { device.destroy_shader_module(vertex_module, None) };
+            return Err(Error::Vulkan("create fragment shader module", error));
+        }
+    };
+    let outcome = pipeline_from(device, vertex_module, fragment_module);
+    // SAFETY: both modules were created above and are not used after this point.
+    unsafe {
+        device.destroy_shader_module(vertex_module, None);
+        device.destroy_shader_module(fragment_module, None);
+    }
+    outcome
+}
+
+fn pipeline_from(
+    device: &Device,
+    vertex_module: vk::ShaderModule,
+    fragment_module: vk::ShaderModule,
+) -> Result<(), Error> {
+    let attachments = [vk::AttachmentDescription::default()
+        .format(vk::Format::R8G8B8A8_UNORM)
+        .samples(vk::SampleCountFlags::TYPE_1)
+        .load_op(vk::AttachmentLoadOp::CLEAR)
+        .store_op(vk::AttachmentStoreOp::STORE)
+        .stencil_load_op(vk::AttachmentLoadOp::DONT_CARE)
+        .stencil_store_op(vk::AttachmentStoreOp::DONT_CARE)
+        .initial_layout(vk::ImageLayout::UNDEFINED)
+        .final_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)];
+    let color = [vk::AttachmentReference {
+        attachment: 0,
+        layout: vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+    }];
+    let subpasses = [vk::SubpassDescription::default()
+        .pipeline_bind_point(vk::PipelineBindPoint::GRAPHICS)
+        .color_attachments(&color)];
+    let pass_info =
+        vk::RenderPassCreateInfo::default().attachments(&attachments).subpasses(&subpasses);
+    // SAFETY: attachment 0 exists and the arrays outlive the call.
+    let render_pass = result("create validation render pass", unsafe {
+        device.create_render_pass(&pass_info, None)
+    })?;
+    let layout_info = vk::PipelineLayoutCreateInfo::default();
+    // SAFETY: no descriptors or push constants; the probe shaders use none.
+    let layout = result("create validation pipeline layout", unsafe {
+        device.create_pipeline_layout(&layout_info, None)
+    })?;
+    let stages = [
+        vk::PipelineShaderStageCreateInfo::default()
+            .stage(vk::ShaderStageFlags::VERTEX)
+            .module(vertex_module)
+            .name(c"main"),
+        vk::PipelineShaderStageCreateInfo::default()
+            .stage(vk::ShaderStageFlags::FRAGMENT)
+            .module(fragment_module)
+            .name(c"main"),
+    ];
+    let input = vk::PipelineVertexInputStateCreateInfo::default();
+    let assembly = vk::PipelineInputAssemblyStateCreateInfo::default()
+        .topology(vk::PrimitiveTopology::TRIANGLE_LIST);
+    let viewports =
+        [vk::Viewport { x: 0.0, y: 0.0, width: 4.0, height: 4.0, min_depth: 0.0, max_depth: 1.0 }];
+    let scissors = [vk::Rect2D {
+        offset: vk::Offset2D { x: 0, y: 0 },
+        extent: vk::Extent2D { width: 4, height: 4 },
+    }];
+    let viewport =
+        vk::PipelineViewportStateCreateInfo::default().viewports(&viewports).scissors(&scissors);
+    let raster = vk::PipelineRasterizationStateCreateInfo::default()
+        .polygon_mode(vk::PolygonMode::FILL)
+        .cull_mode(vk::CullModeFlags::NONE)
+        .front_face(vk::FrontFace::COUNTER_CLOCKWISE)
+        .line_width(1.0);
+    let multisample = vk::PipelineMultisampleStateCreateInfo::default()
+        .rasterization_samples(vk::SampleCountFlags::TYPE_1);
+    let blend_attachments = [vk::PipelineColorBlendAttachmentState::default()
+        .color_write_mask(vk::ColorComponentFlags::RGBA)];
+    let blend = vk::PipelineColorBlendStateCreateInfo::default().attachments(&blend_attachments);
+    let info = [vk::GraphicsPipelineCreateInfo::default()
+        .stages(&stages)
+        .vertex_input_state(&input)
+        .input_assembly_state(&assembly)
+        .viewport_state(&viewport)
+        .rasterization_state(&raster)
+        .multisample_state(&multisample)
+        .color_blend_state(&blend)
+        .layout(layout)
+        .render_pass(render_pass)
+        .subpass(0)];
+    // SAFETY: every referenced object is live and all slices outlive the call.
+    let outcome =
+        match unsafe { device.create_graphics_pipelines(vk::PipelineCache::null(), &info, None) } {
+            Ok(pipelines) => {
+                for pipeline in pipelines {
+                    // SAFETY: the pipeline is created here and never used.
+                    unsafe { device.destroy_pipeline(pipeline, None) };
+                }
+                Ok(())
+            }
+            Err((_pipelines, error)) => Err(Error::Vulkan("create validation pipeline", error)),
+        };
+    // SAFETY: both were created above and are not used again.
+    unsafe {
+        device.destroy_pipeline_layout(layout, None);
+        device.destroy_render_pass(render_pass, None);
+    }
+    outcome
+}
+
 pub(crate) fn render(
     context: &Context,
     width: u32,
@@ -556,7 +700,31 @@ pub(crate) fn render(
     frame.attachment(context, width, height)?;
     frame.buffers(context, size as u64, vertices)?;
     frame.pass(width, height)?;
-    frame.pipeline(width, height)?;
+    frame.pipeline(width, height, None)?;
+    frame.submit(context, width, height, clear, vertices.len() as u32)?;
+    Ok(Image { width, height, rgba: frame.read(size)? })
+}
+
+/// The same offscreen render, driven by caller-supplied SPIR-V.
+///
+/// The vertex stage must read `location = 0` as a `vec2` position, which is the
+/// first attribute the vertex layout here provides; anything else the shader reads
+/// has no source and would read undefined data.
+pub(crate) fn render_with_shaders(
+    context: &Context,
+    width: u32,
+    height: u32,
+    clear: [f32; 4],
+    vertices: &[Vertex],
+    vertex_shader: &[u32],
+    fragment_shader: &[u32],
+) -> Result<Image, Error> {
+    let size = width as usize * height as usize * 4;
+    let mut frame = Frame::new(&context.device);
+    frame.attachment(context, width, height)?;
+    frame.buffers(context, size as u64, vertices)?;
+    frame.pass(width, height)?;
+    frame.pipeline(width, height, Some((vertex_shader, fragment_shader)))?;
     frame.submit(context, width, height, clear, vertices.len() as u32)?;
     Ok(Image { width, height, rgba: frame.read(size)? })
 }

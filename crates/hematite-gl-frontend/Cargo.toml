@@ -8,6 +8,7 @@ description = "The 866-entry GL/EGL C ABI surface plus the implemented fixed-fun
 
 [dependencies]
 hematite-fixed-function.workspace = true
+hematite-glsl.workspace = true
 
 [lints.rust]
 unsafe_op_in_unsafe_fn = "deny"

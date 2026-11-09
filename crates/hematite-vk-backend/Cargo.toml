@@ -9,5 +9,8 @@ description = "Vulkan instance/device and offscreen rendering for Hematite"
 [dependencies]
 ash.workspace = true
 
+[dev-dependencies]
+hematite-glsl.workspace = true
+
 [lints.rust]
 unsafe_op_in_unsafe_fn = "deny"

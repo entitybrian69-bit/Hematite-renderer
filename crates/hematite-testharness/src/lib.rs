@@ -184,4 +184,133 @@ mod tests {
             assert!(!renderer.capabilities().device_name.is_empty());
         }
     }
+
+    /// The SPIR-V Hematite compiles from GLSL must be accepted by a real driver.
+    ///
+    /// `vkCreateShaderModule` is where a driver parses a module, so this is the
+    /// difference between "Hematite produced bytes" and "a Vulkan implementation
+    /// accepts these bytes". Legacy GLSL 1.20, `#version 330/450 core` and a
+    /// shader-pack style fragment stage are all covered.
+    #[test]
+    #[ignore = "requires an actual Vulkan 1.1+ driver; run ./build.sh gpu"]
+    fn compiled_glsl_loads_into_a_real_driver() {
+        use hematite_glsl::{Request, Stage};
+
+        let cases: Vec<(Stage, &str, &str)> = vec![
+            (
+                Stage::Vertex,
+                "legacy 1.20 vertex",
+                "#version 120\nattribute vec4 position;\nattribute vec2 uv;\n                 varying vec2 texcoord;\nuniform mat4 mvp;\n                 void main() { texcoord = uv; gl_Position = mvp * position; }\n",
+            ),
+            (
+                Stage::Fragment,
+                "legacy 1.20 fragment",
+                "#version 120\nvarying vec2 texcoord;\nuniform sampler2D diffuse;\n                 void main() { gl_FragColor = texture2D(diffuse, texcoord); }\n",
+            ),
+            (
+                Stage::Vertex,
+                "330 core vertex",
+                "#version 330 core\nlayout(location = 0) in vec3 position;\n                 out vec4 colour;\nvoid main() { colour = vec4(position, 1.0);                  gl_Position = vec4(position, 1.0); }\n",
+            ),
+            (
+                Stage::Fragment,
+                "450 core fragment",
+                "#version 450 core\nlayout(location = 0) out vec4 colour;\n                 layout(binding = 0) uniform Frame { vec4 tint; };\n                 void main() { colour = tint; }\n",
+            ),
+            (
+                Stage::Fragment,
+                "shader-pack style fragment (shadow sampler, MRT, include)",
+                "#version 120\n#include \"/lib/common.glsl\"\nvarying vec2 texcoord;\n                 uniform sampler2D diffuse;\nuniform sampler2DShadow shadowtex;\n                 void main() {\n                 \x20   vec4 base = texture2D(diffuse, texcoord);\n                 \x20   float shade = shadow2D(shadowtex, vec3(texcoord, 0.5)).r;\n                 \x20   gl_FragColor = vec4(SATURATE(base.rgb * shade), 1.0);\n                 \x20   gl_FragData[1] = vec4(texcoord, 0.0, 1.0);\n}\n",
+            ),
+        ];
+        let includes = [("/lib/common.glsl", "#define SATURATE(x) clamp(x, 0.0, 1.0)\n")];
+
+        let loader = std::env::var_os("HEMATITE_VULKAN_LIBRARY").map(PathBuf::from);
+        let mut renderer = OffscreenRenderer::new(loader.as_deref()).expect("real Vulkan device");
+        for (stage, label, source) in cases {
+            let request = Request { stage, source, includes: &includes, ..Request::default() };
+            let shader = match hematite_glsl::compile(&request) {
+                Ok(shader) => shader,
+                Err(error) => panic!("{label}: {error}"),
+            };
+            assert_eq!(shader.spirv[0], hematite_glsl::SPIRV_MAGIC, "{label}: magic word");
+            renderer
+                .accepts_shader_module(&shader.spirv)
+                .unwrap_or_else(|error| panic!("{label}: the driver rejected the module: {error}"));
+            println!("  driver accepted the {label} module ({} words)", shader.spirv.len());
+        }
+
+        // Creating a module alone proves nothing: this driver accepts a truncated
+        // module at `vkCreateShaderModule` time. So compile a shader that can only
+        // be right if it actually runs, and check the pixels.
+        let drawn = renderer
+            .render_with_shaders(
+                3,
+                3,
+                [0.0, 1.0, 0.0, 1.0],
+                &[
+                    Vertex { position: [-3.0, -1.0], color: [1.0, 1.0, 1.0, 1.0] },
+                    Vertex { position: [3.0, -1.0], color: [1.0, 1.0, 1.0, 1.0] },
+                    Vertex { position: [0.0, 3.0], color: [1.0, 1.0, 1.0, 1.0] },
+                ],
+                &hematite_glsl::compile(&Request::new(
+                    Stage::Vertex,
+                    "#version 120\nattribute vec2 aPosition;\n\
+                     void main() { gl_Position = vec4(aPosition, 0.0, 1.0); }\n",
+                ))
+                .expect("draw vertex compiles")
+                .spirv,
+                &hematite_glsl::compile(&Request::new(
+                    Stage::Fragment,
+                    "#version 120\nvoid main() { gl_FragColor = vec4(1.0, 0.0, 0.0, 1.0); }\n",
+                ))
+                .expect("draw fragment compiles")
+                .spirv,
+            )
+            .expect("a shader compiled from GLSL 1.20 must execute on a real driver");
+        let mut pixels = Vec::new();
+        for y in 0..drawn.height {
+            for x in 0..drawn.width {
+                pixels.push(drawn.pixel(x, y).expect("pixel inside the image"));
+            }
+        }
+        assert_eq!(pixels.len(), 9, "a 3x3 image has nine pixels");
+        assert!(
+            pixels.iter().all(|pixel| *pixel == [255, 0, 0, 255]),
+            "every pixel must be the red the compiled fragment shader writes, not the green clear: {:?}",
+            pixels
+        );
+        println!("  a GLSL 1.20 program ran on the driver and produced the red it writes");
+
+        let vertex = hematite_glsl::compile(&Request::new(
+            Stage::Vertex,
+            "#version 120\nvoid main() { gl_Position = vec4(0.0, 0.0, 0.0, 1.0); }\n",
+        ))
+        .expect("probe vertex compiles");
+        let fragment = hematite_glsl::compile(&Request::new(
+            Stage::Fragment,
+            "#version 120\nvoid main() { gl_FragColor = vec4(1.0, 0.0, 0.0, 1.0); }\n",
+        ))
+        .expect("probe fragment compiles");
+        renderer
+            .accepts_pipeline(&vertex.spirv, &fragment.spirv)
+            .expect("the driver must build a pipeline from Hematite's SPIR-V");
+        println!("  driver built a graphics pipeline from the compiled probe stages");
+
+        // Malformed input must never reach the driver. It cannot be checked on the
+        // driver side here: SwiftShader logs a diagnostic and then dereferences the
+        // invalid module instead of returning an error, so this test process would
+        // be killed by SIGSEGV (observed against the SwiftShader in
+        // .cache/vulkan/driver). The rejection therefore has to happen in
+        // hematite-glsl, which is where it is asserted.
+        let rejected = hematite_glsl::compile(&Request::new(
+            Stage::Fragment,
+            "#version 120\nvoid main() { gl_FragColor = ; }\n",
+        ));
+        assert!(rejected.is_err(), "a broken shader must not produce SPIR-V");
+        assert!(
+            rejected.unwrap_err().to_info_log().contains("Expected"),
+            "the info log must name a syntax problem"
+        );
+    }
 }

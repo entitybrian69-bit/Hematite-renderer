@@ -1,0 +1,17 @@
+[package]
+name = "hematite-glsl"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "GLSL to SPIR-V translation for the Hematite GL front-end"
+
+[lib]
+name = "hematite_glsl"
+path = "src/lib.rs"
+
+[dependencies]
+naga.workspace = true
+hematite-ir.workspace = true

@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-exclude = ["vendor/ash"]
+exclude = ["vendor/ash", "vendor/sources"]
 
 # Only crates that exist and build are members. The planned crates are listed in
 # docs/ARCHITECTURE.md §1 and tracked in docs/ROADMAP.md; adding an empty crate here would
@@ -11,6 +11,7 @@ members = [
     "crates/hematite-fixed-function",
     "crates/hematite-shader-cache",
     "crates/hematite-gl-frontend",
+    "crates/hematite-glsl",
     "crates/hematite-vk-backend",
     "crates/hematite-plugin",
     "crates/hematite-testharness",
@@ -27,6 +28,8 @@ authors = ["Hematite contributors"]
 repository = "https://github.com/entitybrian69-bit/Hematite-renderer"
 
 [workspace.dependencies]
+# Resolved from the committed `vendor/sources` directory source; see .cargo/config.toml.
+naga = { version = "0.14.0", default-features = false, features = ["glsl-in", "spv-out", "validate"] }
 ash = { path = "vendor/ash", default-features = false, features = ["std", "debug"] }
 hematite-vk-backend = { path = "crates/hematite-vk-backend" }
 hematite-plugin = { path = "crates/hematite-plugin" }
@@ -35,6 +38,7 @@ hematite-config = { path = "crates/hematite-config" }
 hematite-fixed-function = { path = "crates/hematite-fixed-function" }
 hematite-shader-cache = { path = "crates/hematite-shader-cache" }
 hematite-gl-frontend = { path = "crates/hematite-gl-frontend" }
+hematite-glsl = { path = "crates/hematite-glsl" }
 
 # Release: smallest and fastest. `panic = "abort"` is not optional here: an unwind that
 # reached LWJGL across the FFI boundary would be undefined behaviour.

@@ -86,6 +86,12 @@ file repeats it so that a reader who opens only one document still sees it.
   render pass, pipeline, pool and fence, so the code path is a correctness harness and not
   a frame loop. The plugin library exports 12 `hematite_*` functions and all 866
   `gl*`/`egl*` symbols; the Vulkan path and the GL path do not talk to each other.
+- **Plugin discovery:** the APK now satisfies the v1 contract
+  (`docs/PLUGIN_CONTRACT.md`), but the launcher has never been run against it, and the
+  declared `org.hematite.renderer.PluginInfo` activity has no implementation (the APK
+  contains no dex), so it exists only so `queryIntentActivities(ACTION_MAIN)` finds the
+  package. The v2 `fclPlugin_V2` JSON contract is not implemented because it needs a
+  `resources.arsc` string resource this encoder does not write.
 - **GL frontend:** the fixed-function subset renders on a **software rasterizer** on the
   CPU. GLSL is not compiled — `glCompileShader` always fails with an explanatory log, so
   `glLinkProgram`/`glUseProgram` cannot activate a shader pipeline and any real GLES2

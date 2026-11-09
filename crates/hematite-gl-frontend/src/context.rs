@@ -126,6 +126,10 @@ pub struct Shader {
     pub stage: u32,
     /// Source as handed to `glShaderSource`.
     pub source: String,
+    /// SPIR-V and interface from the last `glCompileShader`, if it succeeded.
+    pub compiled: Option<hematite_glsl::Shader>,
+    /// What `glGetShaderInfoLog` returns; empty until the shader is compiled.
+    pub info_log: String,
 }
 
 /// A program object: the shaders attached to it and its uniform values.
@@ -135,6 +139,43 @@ pub struct Program {
     pub shaders: Vec<u32>,
     /// Uniform values set through `glUniform*`.
     pub uniforms: HashMap<String, Uniform>,
+    /// Locations requested with `glBindAttribLocation` before the last link.
+    pub attribute_bindings: Vec<(String, u32)>,
+    /// The compiled stages and merged interface of the last successful link.
+    pub linked: Option<LinkedProgram>,
+    /// What `glGetProgramInfoLog` returns.
+    pub info_log: String,
+}
+
+/// A linked program: compiled stages plus the interface they share.
+#[derive(Debug, Clone)]
+pub struct LinkedProgram {
+    /// The compiled stages, in the order they were attached.
+    pub stages: Vec<hematite_glsl::Shader>,
+    /// Uniform fields, in interface order; the index is the `GLint` location.
+    pub uniform_names: Vec<String>,
+    /// Vertex attribute locations by name.
+    pub attributes: Vec<(String, u32)>,
+    /// Sampler bindings by uniform name.
+    pub samplers: Vec<(String, u32, u32)>,
+}
+
+impl Program {
+    /// True when the last `glLinkProgram` on this program succeeded.
+    pub fn link_status(&self) -> bool {
+        self.linked.is_some()
+    }
+
+    /// The uniform location for a name, or -1 as GL requires for an unknown name.
+    pub fn uniform_location(&self, name: &str) -> i32 {
+        match self.linked {
+            Some(ref linked) => match linked.uniform_names.iter().position(|item| item == name) {
+                Some(index) => index as i32,
+                None => -1,
+            },
+            None => -1,
+        }
+    }
 }
 
 /// A uniform value the fixed-function path can honour.

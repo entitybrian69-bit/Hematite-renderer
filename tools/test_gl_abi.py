@@ -30,6 +30,15 @@ GL_RGBA = 0x1908
 GL_UNSIGNED_BYTE = 0x1401
 GL_TRIANGLES = 0x0004
 GL_NO_ERROR = 0
+GL_VERTEX_SHADER = 0x8B31
+GL_FRAGMENT_SHADER = 0x8B30
+GL_COMPILE_STATUS = 0x8B81
+GL_LINK_STATUS = 0x8B82
+GL_INFO_LOG_LENGTH = 0x8B84
+GL_ACTIVE_ATTRIBUTES = 0x8B89
+GL_ACTIVE_UNIFORMS = 0x8B86
+GL_TRUE = 1
+GL_INVALID_OPERATION = 0x0502
 EGL_NONE = 0x3038
 EGL_SURFACE_TYPE = 0x3033
 EGL_PBUFFER_BIT = 0x0001
@@ -162,6 +171,114 @@ def main(path: Path) -> int:
     library.eglSwapBuffers.restype = ctypes.c_uint32
     library.eglSwapBuffers.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
     check(library.eglSwapBuffers(display, surface) == EGL_TRUE, "eglSwapBuffers published a frame")
+
+    # --- GLSL compilation and linking through the exported ABI --------------
+    # These are the calls a game makes before it can draw anything with shaders.
+    library.glCreateShader.restype = ctypes.c_uint32
+    library.glCreateShader.argtypes = [ctypes.c_uint32]
+    library.glShaderSource.argtypes = [ctypes.c_uint32, ctypes.c_int32,
+                                       ctypes.POINTER(ctypes.c_char_p),
+                                       ctypes.POINTER(ctypes.c_int32)]
+    library.glCompileShader.argtypes = [ctypes.c_uint32]
+    library.glGetShaderiv.argtypes = [ctypes.c_uint32, ctypes.c_uint32,
+                                      ctypes.POINTER(ctypes.c_int32)]
+    library.glGetShaderInfoLog.argtypes = [ctypes.c_uint32, ctypes.c_int32,
+                                           ctypes.POINTER(ctypes.c_int32), ctypes.c_char_p]
+    library.glCreateProgram.restype = ctypes.c_uint32
+    library.glAttachShader.argtypes = [ctypes.c_uint32, ctypes.c_uint32]
+    library.glLinkProgram.argtypes = [ctypes.c_uint32]
+    library.glGetProgramiv.argtypes = [ctypes.c_uint32, ctypes.c_uint32,
+                                       ctypes.POINTER(ctypes.c_int32)]
+    library.glGetProgramInfoLog.argtypes = [ctypes.c_uint32, ctypes.c_int32,
+                                            ctypes.POINTER(ctypes.c_int32), ctypes.c_char_p]
+    library.glGetAttribLocation.restype = ctypes.c_int32
+    library.glGetAttribLocation.argtypes = [ctypes.c_uint32, ctypes.c_char_p]
+    library.glGetUniformLocation.restype = ctypes.c_int32
+    library.glGetUniformLocation.argtypes = [ctypes.c_uint32, ctypes.c_char_p]
+    library.glBindAttribLocation.argtypes = [ctypes.c_uint32, ctypes.c_uint32, ctypes.c_char_p]
+    library.glUseProgram.argtypes = [ctypes.c_uint32]
+
+    def log_of(get_length, get_log, name: int) -> str:
+        length = ctypes.c_int32(0)
+        get_length(name, GL_INFO_LOG_LENGTH, ctypes.byref(length))
+        buffer = ctypes.create_string_buffer(max(length.value, 1))
+        written = ctypes.c_int32(0)
+        get_log(name, len(buffer), ctypes.byref(written), buffer)
+        return buffer.value.decode("utf-8", "replace")
+
+    def compile(stage: int, source: str) -> tuple[int, int, str]:
+        shader = library.glCreateShader(stage)
+        text = ctypes.c_char_p(source.encode("utf-8"))
+        strings = (ctypes.c_char_p * 1)(text)
+        library.glShaderSource(shader, 1, strings, None)
+        library.glCompileShader(shader)
+        status = ctypes.c_int32(0)
+        library.glGetShaderiv(shader, GL_COMPILE_STATUS, ctypes.byref(status))
+        return shader, status.value, log_of(library.glGetShaderiv,
+                                            library.glGetShaderInfoLog, shader)
+
+    vertex, status, log = compile(GL_VERTEX_SHADER, """
+#version 120
+attribute vec4 position;
+attribute vec2 uv;
+varying vec2 texcoord;
+uniform mat4 mvp;
+void main() {
+    texcoord = uv;
+    gl_Position = mvp * position;
+}
+""")
+    check(status == GL_TRUE, f"a GLSL 1.20 vertex shader compiles (log: {log!r})")
+
+    fragment, status, log = compile(GL_FRAGMENT_SHADER, """
+#version 120
+varying vec2 texcoord;
+uniform sampler2D diffuse;
+uniform sampler2DShadow shadowtex;
+void main() {
+    vec4 colour = texture2D(diffuse, texcoord);
+    float shade = shadow2D(shadowtex, vec3(texcoord, 0.5)).r;
+    gl_FragColor = vec4(colour.rgb * shade, 1.0);
+    gl_FragData[1] = vec4(texcoord, 0.0, 1.0);
+}
+""")
+    check(status == GL_TRUE, f"a GLSL 1.20 fragment shader with a shadow sampler and MRT "
+                             f"compiles (log: {log!r})")
+
+    broken, status, log = compile(GL_VERTEX_SHADER, "#version 120\nvoid main() { int = ; }\n")
+    check(status != GL_TRUE and log.strip() != "",
+          f"a broken shader fails to compile with a diagnostic ({log.strip()[:60]!r})")
+
+    program = library.glCreateProgram()
+    library.glBindAttribLocation(program, 5, b"uv")
+    library.glAttachShader(program, vertex)
+    library.glAttachShader(program, fragment)
+    library.glLinkProgram(program)
+    link = ctypes.c_int32(0)
+    library.glGetProgramiv(program, GL_LINK_STATUS, ctypes.byref(link))
+    check(link.value == GL_TRUE, "the program links (log: "
+          + repr(log_of(library.glGetProgramiv, library.glGetProgramInfoLog, program)) + ")")
+    check(library.glGetAttribLocation(program, b"position") == 0, "position is attribute 0")
+    check(library.glGetAttribLocation(program, b"uv") == 5,
+          "glBindAttribLocation before linking is honoured")
+    check(library.glGetUniformLocation(program, b"mvp") >= 0, "the mvp uniform has a location")
+    check(library.glGetUniformLocation(program, b"diffuse") >= 0,
+          "a sampler uniform has a location")
+    check(library.glGetUniformLocation(program, b"not_declared") == -1,
+          "an unknown uniform name returns -1")
+    active = ctypes.c_int32(0)
+    library.glGetProgramiv(program, GL_ACTIVE_ATTRIBUTES, ctypes.byref(active))
+    check(active.value == 2, f"{active.value} active attributes are reported")
+    uniforms = ctypes.c_int32(0)
+    library.glGetProgramiv(program, GL_ACTIVE_UNIFORMS, ctypes.byref(uniforms))
+    check(uniforms.value >= 3, f"{uniforms.value} active uniforms are reported")
+    library.glUseProgram(program)
+    check(library.glGetError() == GL_NO_ERROR, "a linked program can be made current")
+
+    unlinked = library.glCreateProgram()
+    library.glUseProgram(unlinked)
+    check(library.glGetError() == GL_INVALID_OPERATION,
+          "using a program that was never linked raises GL_INVALID_OPERATION")
 
     # --- The self-contained demo scene --------------------------------------
     library.hematite_gl_render_demo.restype = ctypes.c_int32

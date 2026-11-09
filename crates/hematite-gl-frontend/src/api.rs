@@ -10,11 +10,14 @@
 //! clear, readback and errors, all on the software rasterizer in [`crate::raster`].
 //!
 //! # What is not
-//! GLSL is not compiled: `glCompileShader` reports failure with an explanatory info log
-//! rather than pretending to succeed, so `glLinkProgram` and `glUseProgram` cannot make a
-//! shader-driven pipeline active. Stencil operations, `glPolygonOffset` and `glHint` are
-//! accepted and have no effect. Multisampling, point sprites, texture compression and
-//! renderbuffers are not implemented and report `GL_INVALID_ENUM` / `GL_INVALID_OPERATION`.
+//! GLSL is compiled — `glCompileShader` translates the source to SPIR-V through
+//! [`hematite_glsl`], and `glLinkProgram` checks the stage interfaces — but the compiled
+//! SPIR-V is not executed by the rasterizer in [`crate::raster`]: draws still run the
+//! fixed-function path. Routing the front end through the Vulkan backend is what makes a
+//! shader-driven pipeline actually render. Stencil operations, `glPolygonOffset` and
+//! `glHint` are accepted and have no effect. Multisampling, point sprites, texture
+//! compression and renderbuffers are not implemented and report `GL_INVALID_ENUM` /
+//! `GL_INVALID_OPERATION`.
 
 //! Entry point names keep their C spelling, so the lint is off for this module.
 #![allow(non_snake_case)]
@@ -27,11 +30,7 @@ const VENDOR: &[u8] = b"Hematite\0";
 const RENDERER: &[u8] = b"Hematite software rasterizer\0";
 const VERSION: &[u8] = b"1.4 Hematite 0.1.0 (fixed-function subset)\0";
 const EXTENSIONS: &[u8] = b"\0";
-const GLSL_VERSION: &[u8] = b"0.00 (GLSL is not compiled)\0";
-
-/// Why `glCompileShader` always fails, so an application can log something useful.
-const GLSL_UNSUPPORTED: &str = "Hematite does not compile GLSL; only the fixed-function \
-                                pipeline is implemented. See docs/KNOWN_LIMITATIONS.md.\0";
+const GLSL_VERSION: &[u8] = b"1.20 Hematite (translated to SPIR-V)\0";
 
 /// Attribute location used for colour when no shader binds one.
 const COLOR_ATTRIB: usize = 1;
@@ -1399,7 +1398,7 @@ pub fn glReadPixels(
 }
 
 // ---------------------------------------------------------------------------
-// Shaders and programs: accepted, but GLSL is not compiled
+// Shaders and programs: GLSL is compiled to SPIR-V by hematite-glsl
 // ---------------------------------------------------------------------------
 
 /// Create a shader object of the given stage.
@@ -1408,7 +1407,12 @@ pub fn glCreateShader(ty: u32) -> u32 {
         with(|ctx| ctx.set_error(GL_INVALID_ENUM));
         return 0;
     }
-    with(|ctx| Context::alloc(&mut ctx.shaders, Shader { stage: ty, source: String::new() }))
+    with(|ctx| {
+        Context::alloc(
+            &mut ctx.shaders,
+            Shader { stage: ty, source: String::new(), compiled: None, info_log: String::new() },
+        )
+    })
 }
 
 /// Store the source of a shader object.
@@ -1447,45 +1451,104 @@ pub fn glShaderSource(shader: u32, count: i32, string: *const *const c_char, len
             return;
         };
         slot.source = source;
+        // A new source invalidates the previous compile, as the specification requires.
+        slot.compiled = None;
+        slot.info_log = String::new();
     });
 }
 
-/// Record that GLSL cannot be compiled. Always leaves `GL_COMPILE_STATUS` false.
+/// Compile a shader object: GLSL in, SPIR-V out.
+///
+/// The compile runs outside the context borrow, so the compiler cannot re-enter the
+/// front end (a double borrow would abort the process: `panic = "abort"` is set for
+/// release builds because unwinding across the FFI boundary is undefined behaviour).
 pub fn glCompileShader(shader: u32) {
-    with(|ctx| {
-        if shader == 0 || !ctx.shaders.get(shader as usize - 1).is_some_and(|slot| slot.is_some()) {
+    let requested = with(|ctx| {
+        let Some(slot) = ctx.shaders.get(shader as usize - 1).and_then(|slot| slot.as_ref()) else {
             ctx.set_error(GL_INVALID_VALUE);
+            return None;
+        };
+        Some((slot.source.clone(), slot.stage))
+    });
+    let Some((source, stage)) = requested else { return };
+    let Some(stage) = hematite_glsl::Stage::from_gl_enum(stage) else {
+        // `glCreateShader` rejects every other stage, so this is unreachable in practice.
+        with(|ctx| ctx.set_error(GL_INVALID_ENUM));
+        return;
+    };
+    let request = hematite_glsl::Request::new(stage, &source);
+    let result = hematite_glsl::compile(&request);
+    with(|ctx| {
+        let Some(slot) = ctx.shaders.get_mut(shader as usize - 1).and_then(|slot| slot.as_mut())
+        else {
+            ctx.set_error(GL_INVALID_VALUE);
+            return;
+        };
+        match result {
+            Ok(compiled) => {
+                let mut log = String::new();
+                for warning in &compiled.warnings {
+                    log.push_str("warning: ");
+                    log.push_str(warning);
+                    log.push('\n');
+                }
+                slot.compiled = Some(compiled);
+                slot.info_log = log;
+            }
+            Err(error) => {
+                slot.compiled = None;
+                slot.info_log = error.to_info_log();
+            }
         }
     });
 }
 
-/// Query shader state; only the info log length and the failing compile status exist.
+/// Query shader state.
 pub fn glGetShaderiv(shader: u32, pname: u32, params: *mut i32) {
     if params.is_null() {
         with(|ctx| ctx.set_error(GL_INVALID_VALUE));
         return;
     }
     with(|ctx| {
-        if shader == 0 || !ctx.shaders.get(shader as usize - 1).is_some_and(|slot| slot.is_some()) {
+        let Some(slot) = ctx.shaders.get(shader as usize - 1).and_then(|slot| slot.as_ref()) else {
             ctx.set_error(GL_INVALID_VALUE);
             return;
-        }
-        match pname {
-            GL_COMPILE_STATUS => unsafe { params.write_unaligned(GL_FALSE as i32) },
-            GL_INFO_LOG_LENGTH => unsafe { params.write_unaligned(GLSL_UNSUPPORTED.len() as i32) },
-            _ => ctx.set_error(GL_INVALID_ENUM),
-        }
+        };
+        let value = match pname {
+            GL_COMPILE_STATUS => {
+                if slot.compiled.is_some() {
+                    GL_TRUE as i32
+                } else {
+                    GL_FALSE as i32
+                }
+            }
+            // GL reports lengths including the terminating NUL.
+            GL_INFO_LOG_LENGTH => slot.info_log.len() as i32 + 1,
+            GL_SHADER_SOURCE_LENGTH => slot.source.len() as i32 + 1,
+            GL_SHADER_TYPE => slot.stage as i32,
+            GL_DELETE_STATUS => GL_FALSE as i32,
+            _ => {
+                ctx.set_error(GL_INVALID_ENUM);
+                return;
+            }
+        };
+        unsafe { params.write_unaligned(value) };
     });
 }
 
-/// Copy the explanation of why compilation failed.
+/// Copy the compiler's diagnostics: errors when it failed, warnings when it did not.
 pub fn glGetShaderInfoLog(shader: u32, buf_size: i32, length: *mut i32, info_log: *mut c_char) {
-    with(|ctx| {
-        if shader == 0 || !ctx.shaders.get(shader as usize - 1).is_some_and(|slot| slot.is_some()) {
-            ctx.set_error(GL_INVALID_VALUE);
-        }
-    });
-    write_log(buf_size, length, info_log, GLSL_UNSUPPORTED);
+    let log =
+        with(|ctx| match ctx.shaders.get(shader as usize - 1).and_then(|slot| slot.as_ref()) {
+            Some(slot) => Some(slot.info_log.clone()),
+            None => {
+                ctx.set_error(GL_INVALID_VALUE);
+                None
+            }
+        });
+    if let Some(log) = log {
+        write_log(buf_size, length, info_log, &log);
+    }
 }
 
 fn write_log(buf_size: i32, length: *mut i32, destination: *mut c_char, text: &str) {
@@ -1527,7 +1590,13 @@ pub fn glCreateProgram() -> u32 {
     with(|ctx| {
         Context::alloc(
             &mut ctx.programs,
-            Program { shaders: Vec::new(), uniforms: Default::default() },
+            Program {
+                shaders: Vec::new(),
+                uniforms: Default::default(),
+                attribute_bindings: Vec::new(),
+                linked: None,
+                info_log: String::new(),
+            },
         )
     })
 }
@@ -1550,12 +1619,137 @@ pub fn glAttachShader(program: u32, shader: u32) {
     });
 }
 
-/// Link a program; always fails because no attached shader could compile.
+/// Link a program: check that the compiled stages fit together.
+///
+/// Hematite links by comparing the interfaces the compiler extracted, which is the
+/// same check a driver makes: every fragment input must be written by the vertex
+/// stage at the same location, and a program needs both stages to draw.
 pub fn glLinkProgram(program: u32) {
-    with(|ctx| {
-        if program == 0 || !ctx.programs.get(program as usize - 1).is_some_and(|s| s.is_some()) {
+    let gathered = with(|ctx| {
+        let Some(target) = ctx.programs.get(program as usize - 1).and_then(|slot| slot.as_ref())
+        else {
             ctx.set_error(GL_INVALID_VALUE);
+            return None;
+        };
+        let mut stages: Vec<hematite_glsl::Shader> = Vec::new();
+        let mut sources: Vec<(u32, String)> = Vec::new();
+        let mut log = String::new();
+        for name in &target.shaders {
+            match ctx.shaders.get(*name as usize - 1).and_then(|slot| slot.as_ref()) {
+                Some(slot) => {
+                    sources.push((slot.stage, slot.source.clone()));
+                    match &slot.compiled {
+                        Some(compiled) => stages.push(compiled.clone()),
+                        None => {
+                            log.push_str("error: attached shader is not compiled\n");
+                        }
+                    }
+                }
+                None => log.push_str("error: attached shader no longer exists\n"),
+            }
         }
+        let bindings = target.attribute_bindings.clone();
+        Some((stages, sources, log, bindings))
+    });
+    let Some((mut stages, sources, mut log, bindings)) = gathered else { return };
+
+    // `glBindAttribLocation` takes effect at link time, so the vertex stage is
+    // recompiled with the locations the application asked for. That is also what a
+    // driver does: the binding is a property of the program, not of the shader.
+    if !bindings.is_empty() {
+        let locations =
+            bindings.iter().map(|(name, location)| (name.as_str(), *location)).collect::<Vec<_>>();
+        for (stage, source) in &sources {
+            let Some(stage) = hematite_glsl::Stage::from_gl_enum(*stage) else { continue };
+            if stage != hematite_glsl::Stage::Vertex {
+                continue;
+            }
+            let request = hematite_glsl::Request {
+                stage,
+                source,
+                attribute_locations: &locations,
+                ..hematite_glsl::Request::default()
+            };
+            match hematite_glsl::compile(&request) {
+                Ok(compiled) => {
+                    if let Some(slot) = stages.iter_mut().find(|item| item.stage == stage) {
+                        *slot = compiled;
+                    }
+                }
+                Err(error) => log.push_str(&error.to_info_log()),
+            }
+        }
+    }
+
+    let vertex = stages.iter().find(|stage| stage.stage == hematite_glsl::Stage::Vertex);
+    let fragment = stages.iter().rev().find(|stage| stage.stage == hematite_glsl::Stage::Fragment);
+    let linked = match (vertex, fragment) {
+        (Some(vertex), Some(fragment)) => {
+            // Every fragment input must be produced by the vertex stage at the same
+            // location, or the pipeline would read uninitialised data.
+            for input in &fragment.interface.varyings {
+                let produced = vertex
+                    .interface
+                    .varyings
+                    .iter()
+                    .any(|output| output.location == input.location && output.ty == input.ty);
+                if !produced {
+                    log.push_str(&format!(
+                        "error: fragment input `{}` at location {} has no matching vertex \
+                         output\n",
+                        input.name, input.location
+                    ));
+                }
+            }
+            let mut uniform_names: Vec<String> = Vec::new();
+            let mut samplers: Vec<(String, u32, u32)> = Vec::new();
+            for stage in [&vertex.interface, &fragment.interface] {
+                for member in stage.uniforms() {
+                    if !uniform_names.contains(&member.name) {
+                        uniform_names.push(member.name.clone());
+                    }
+                }
+                for sampler in &stage.samplers {
+                    if !samplers.iter().any(|(name, _, _)| *name == sampler.name) {
+                        samplers.push((sampler.name.clone(), sampler.binding, sampler.set));
+                        if !uniform_names.contains(&sampler.name) {
+                            uniform_names.push(sampler.name.clone());
+                        }
+                    }
+                }
+            }
+            let attributes = vertex
+                .interface
+                .attributes
+                .iter()
+                .map(|attribute| (attribute.name.clone(), attribute.location))
+                .collect::<Vec<_>>();
+            let _ = bindings;
+            log.is_empty().then(|| crate::context::LinkedProgram {
+                stages: stages.clone(),
+                uniform_names,
+                attributes,
+                samplers,
+            })
+        }
+        (None, _) => {
+            log.push_str("error: no compiled vertex shader is attached\n");
+            None
+        }
+        (_, None) => {
+            log.push_str("error: no compiled fragment shader is attached\n");
+            None
+        }
+    };
+    with(|ctx| {
+        let Some(target) =
+            ctx.programs.get_mut(program as usize - 1).and_then(|slot| slot.as_mut())
+        else {
+            ctx.set_error(GL_INVALID_VALUE);
+            return;
+        };
+        target.linked = linked;
+        target.info_log = log;
     });
 }
 
@@ -1566,26 +1760,66 @@ pub fn glGetProgramiv(program: u32, pname: u32, params: *mut i32) {
         return;
     }
     with(|ctx| {
-        if program == 0 || !ctx.programs.get(program as usize - 1).is_some_and(|s| s.is_some()) {
+        let Some(target) = ctx.programs.get(program as usize - 1).and_then(|slot| slot.as_ref())
+        else {
             ctx.set_error(GL_INVALID_VALUE);
             return;
-        }
-        match pname {
-            GL_LINK_STATUS => unsafe { params.write_unaligned(GL_FALSE as i32) },
-            GL_INFO_LOG_LENGTH => unsafe { params.write_unaligned(GLSL_UNSUPPORTED.len() as i32) },
-            _ => ctx.set_error(GL_INVALID_ENUM),
-        }
+        };
+        let linked = target.link_status();
+        let value = match pname {
+            GL_LINK_STATUS | GL_VALIDATE_STATUS => {
+                if linked {
+                    GL_TRUE as i32
+                } else {
+                    GL_FALSE as i32
+                }
+            }
+            GL_INFO_LOG_LENGTH => target.info_log.len() as i32 + 1,
+            GL_ATTACHED_SHADERS => target.shaders.len() as i32,
+            GL_DELETE_STATUS => GL_FALSE as i32,
+            GL_ACTIVE_UNIFORMS => match &target.linked {
+                Some(program) => program.uniform_names.len() as i32,
+                None => 0,
+            },
+            GL_ACTIVE_UNIFORM_MAX_LENGTH => match &target.linked {
+                Some(program) => {
+                    program.uniform_names.iter().map(String::len).max().unwrap_or(0) as i32 + 1
+                }
+                None => 0,
+            },
+            GL_ACTIVE_ATTRIBUTES => match &target.linked {
+                Some(program) => program.attributes.len() as i32,
+                None => 0,
+            },
+            GL_ACTIVE_ATTRIBUTE_MAX_LENGTH => match &target.linked {
+                Some(program) => {
+                    program.attributes.iter().map(|(name, _)| name.len()).max().unwrap_or(0) as i32
+                        + 1
+                }
+                None => 0,
+            },
+            _ => {
+                ctx.set_error(GL_INVALID_ENUM);
+                return;
+            }
+        };
+        unsafe { params.write_unaligned(value) };
     });
 }
 
-/// Copy the explanation of why linking failed.
+/// Copy the link diagnostics.
 pub fn glGetProgramInfoLog(program: u32, buf_size: i32, length: *mut i32, info_log: *mut c_char) {
-    with(|ctx| {
-        if program == 0 || !ctx.programs.get(program as usize - 1).is_some_and(|s| s.is_some()) {
-            ctx.set_error(GL_INVALID_VALUE);
-        }
-    });
-    write_log(buf_size, length, info_log, GLSL_UNSUPPORTED);
+    let log =
+        with(|ctx| match ctx.programs.get(program as usize - 1).and_then(|slot| slot.as_ref()) {
+            Some(target) => Some(target.info_log.clone()),
+            None => {
+                ctx.set_error(GL_INVALID_VALUE);
+                None
+            }
+        });
+    if let Some(log) = log {
+        write_log(buf_size, length, info_log, &log);
+    }
 }
 
 /// Delete a program object.
@@ -1603,34 +1837,97 @@ pub fn glDeleteProgram(program: u32) {
     });
 }
 
-/// Make a program current; only a successfully linked program can be used, and none can
-/// be, so this always reports `GL_INVALID_OPERATION`.
+/// Make a linked program current.
+///
+/// The program's SPIR-V is stored and queryable, but the rasterizer still runs the
+/// fixed-function path: executing the compiled shaders is the Vulkan routing step in
+/// `docs/ROADMAP.md`. An unlinked program is `GL_INVALID_OPERATION`, as specified.
 pub fn glUseProgram(program: u32) {
     with(|ctx| {
         if program == 0 {
             ctx.current_program = None;
             return;
         }
-        if !ctx.programs.get(program as usize - 1).is_some_and(|slot| slot.is_some()) {
+        let Some(target) = ctx.programs.get(program as usize - 1).and_then(|slot| slot.as_ref())
+        else {
             ctx.set_error(GL_INVALID_VALUE);
             return;
+        };
+        if !target.link_status() {
+            ctx.set_error(GL_INVALID_OPERATION);
+            return;
         }
-        ctx.set_error(GL_INVALID_OPERATION);
+        ctx.current_program = Some(program);
     });
 }
 
-/// Uniform locations are unknown without a compiled program, so this returns -1.
-pub fn glGetUniformLocation(_program: u32, _name: *const c_char) -> i32 {
-    -1
+/// The location of a uniform in a linked program, or -1.
+pub fn glGetUniformLocation(program: u32, name: *const c_char) -> i32 {
+    let Some(name) = cstr(name) else { return -1 };
+    // GL accepts `name[0]` as a synonym for the first element of an array uniform.
+    let name = name.strip_suffix("[0]").unwrap_or(&name);
+    let Some(target) = with(|ctx| {
+        ctx.programs
+            .get(program as usize - 1)
+            .and_then(|slot| slot.as_ref())
+            .map(|target| (target.link_status(), target.uniform_location(name)))
+    }) else {
+        with(|ctx| ctx.set_error(GL_INVALID_VALUE));
+        return -1;
+    };
+    if !target.0 {
+        with(|ctx| ctx.set_error(GL_INVALID_OPERATION));
+        return -1;
+    }
+    target.1
 }
 
-/// Attribute locations are unknown without a compiled program, so this returns -1.
-pub fn glGetAttribLocation(_program: u32, _name: *const c_char) -> i32 {
-    -1
+/// The location of a vertex attribute in a linked program, or -1.
+pub fn glGetAttribLocation(program: u32, name: *const c_char) -> i32 {
+    let Some(name) = cstr(name) else { return -1 };
+    let found = with(|ctx| {
+        let Some(target) = ctx.programs.get(program as usize - 1).and_then(|slot| slot.as_ref())
+        else {
+            ctx.set_error(GL_INVALID_VALUE);
+            return None;
+        };
+        if !target.link_status() {
+            ctx.set_error(GL_INVALID_OPERATION);
+            return None;
+        }
+        Some(match &target.linked {
+            Some(linked) => linked
+                .attributes
+                .iter()
+                .find(|(attribute, _location)| attribute == name.as_ref())
+                .map_or(-1, |(_name, location)| *location as i32),
+            None => -1,
+        })
+    });
+    found.unwrap_or(-1)
 }
 
-/// Accepted and ignored; attribute binding needs a compiled program.
-pub fn glBindAttribLocation(_program: u32, _index: u32, _name: *const c_char) {}
+/// Request an attribute location for the next link of this program.
+pub fn glBindAttribLocation(program: u32, index: u32, name: *const c_char) {
+    let Some(name) = cstr(name) else {
+        with(|ctx| ctx.set_error(GL_INVALID_VALUE));
+        return;
+    };
+    with(|ctx| {
+        let Some(target) =
+            ctx.programs.get_mut(program as usize - 1).and_then(|slot| slot.as_mut())
+        else {
+            ctx.set_error(GL_INVALID_VALUE);
+            return;
+        };
+        if name.starts_with("gl_") {
+            ctx.set_error(GL_INVALID_OPERATION);
+            return;
+        }
+        target.attribute_bindings.retain(|(bound, _location)| bound != name.as_ref());
+        target.attribute_bindings.push((name.into_owned(), index));
+    });
+}
 
 /// Accepted and ignored; uniforms need a compiled program.
 pub fn glUniform1i(_location: i32, _v0: i32) {}
