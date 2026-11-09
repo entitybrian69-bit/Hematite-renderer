@@ -21,7 +21,7 @@ NOT-IMPLEMENTED.
 | E-3 | No Android device or emulator | Zero on-device behaviour has been observed. The APK has never been installed; the arm64 library has never been loaded by a dynamic loader. |
 | E-4 | No hardware Vulkan driver and no validation layers | Frames *are* rendered and read back, but only on SwiftShader (CPU, Vulkan 1.3.0). A lenient software driver can hide synchronization, layout and lifetime mistakes that a real driver or the validation layers would reject. |
 | E-5 | crates.io unreachable | `ash` 0.38.0 is vendored from its GitHub tag with a reduced, dependency-free Cargo manifest (`vendor/ash/UPSTREAM.md`). Every other dependency (`vulkano`, `naga`, `gpu-allocator`, `glslang` crate, …) is still *planned*, not proven. |
-| E-6 | No Android runtime verification | The arm64 `.so` is verified structurally (ELF, `DT_NEEDED`, alignment, exports) and by the absence of glibc/musl spellings. Whether bionic actually resolves all 45 undefined symbols at `dlopen` is untested. |
+| E-6 | No Android runtime verification | The arm64 `.so` is verified structurally (ELF, `DT_NEEDED`, alignment, exports) and by the absence of glibc/musl spellings. Whether bionic actually resolves all 62 undefined symbols at `dlopen` is untested. |
 | E-7 | Symbol-to-library assignment is a table | `tools/android_linker.py` maps referenced symbols to `libc/libm/libdl/liblog/libunwind`; anything unlisted is assumed to be in `libc.so`. The NDK would have proven this at link time. A wrong guess appears only as a load-time failure on a device. |
 
 **The direct consequence: there are no benchmark numbers, no device results and no
