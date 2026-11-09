@@ -13,8 +13,12 @@ crates/hematite-gl-frontend/src/gen/
 /package-lock.json
 
 # Build outputs
-/dist/
+# dist/ is ignored except the bring-up APK, which is committed so it has a stable
+# download URL. (/dist/* rather than /dist/ so the exception can take effect.)
+/dist/*
+!/dist/hematite-debug.apk
 *.apk
+!hematite-debug.apk
 *.aab
 *.so
 *.dylib
