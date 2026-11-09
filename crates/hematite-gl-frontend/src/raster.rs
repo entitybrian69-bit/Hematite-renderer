@@ -357,8 +357,16 @@ impl Context {
     }
 
     /// Transform, expand the primitive topology and rasterize.
+    ///
+    /// A draw that the Vulkan backend can reproduce exactly is routed there instead; see
+    /// [`crate::vulkan`]. Whatever the backend declines lands here, and it has already been
+    /// flushed into the framebuffer by the time this runs, so the two paths cannot interleave
+    /// out of order.
     pub fn draw_vertices(&mut self, mode: u32, vertices: &[Vertex]) {
         if vertices.len() < 2 {
+            return;
+        }
+        if crate::vulkan::draw(self, mode, vertices) {
             return;
         }
         let mvp = self.mvp();
@@ -446,6 +454,9 @@ impl Context {
 
     /// Clear the buffers named by `mask`, honouring the scissor test and the write masks.
     pub fn clear(&mut self, mask: u32) {
+        // A device frame that has not been composited yet still holds pixels destined for this
+        // buffer; let it land first or the clear would be overwritten.
+        crate::vulkan::flush_pending(self);
         let scissor = if self.scissor_test { Some(self.scissor) } else { None };
         let (width, height) = (self.framebuffer.width, self.framebuffer.height);
         let (x0, y0, x1, y1) = match scissor {

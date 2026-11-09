@@ -1375,6 +1375,8 @@ pub fn glReadPixels(
         return;
     }
     with(|ctx| {
+        // Pixels recorded into an open device frame are not in the host buffer yet.
+        crate::vulkan::flush_pending(ctx);
         let channels = if format == GL_RGBA { 4 } else { 3 };
         let row_bytes = (width as usize) * channels;
         let stride = row_bytes.div_ceil(ctx.pack_alignment) * ctx.pack_alignment;

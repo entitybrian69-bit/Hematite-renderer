@@ -93,6 +93,7 @@ case "${1:-check}" in
         # rings, async builds), and the harness checks that the SPIR-V compiled from GLSL is
         # accepted by a real Vulkan implementation.
         cargo test --locked -p hematite-vk-backend -- --ignored --nocapture
+        cargo test --locked -p hematite-gl-frontend --lib -- --ignored --nocapture
         cargo test --locked -p hematite-testharness -- --ignored --nocapture
         cargo run --locked -p hematite-testharness -- \
             --loader "$PWD/.cache/vulkan/driver/libvulkan.so.1" \

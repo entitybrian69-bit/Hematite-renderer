@@ -32,6 +32,7 @@ pub mod egl;
 pub mod gen;
 pub mod gl_types;
 pub mod raster;
+pub mod vulkan;
 
 use gl_types::*;
 

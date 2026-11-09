@@ -58,6 +58,7 @@ version = "0.1.0"
 dependencies = [
  "hematite-fixed-function",
  "hematite-glsl",
+ "hematite-vk-backend",
 ]
 
 [[package]]

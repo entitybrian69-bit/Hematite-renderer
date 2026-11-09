@@ -268,7 +268,7 @@ def manifest() -> Element:
             ]),
             Element("meta-data", [
                 Attribute("name", "des"),
-                Attribute("value", "Hematite (bring-up: no GLSL, no presentation)"),
+                Attribute("value", "Hematite (bring-up: fixed-function draws on Vulkan, no presentation)"),
             ]),
             Element("meta-data", [
                 Attribute("name", "pojavEnv"),

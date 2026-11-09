@@ -299,6 +299,10 @@ pub struct Diagnostics {
     pub fragments_written: u64,
     /// Texture fetches performed.
     pub texture_fetches: u64,
+    /// Draw calls whose geometry was produced by the Vulkan backend.
+    pub routed_draws: u64,
+    /// Draw calls that a Vulkan session declined, so the rasterizer ran instead.
+    pub rasterizer_fallbacks: u64,
 }
 
 /// Everything one GL context owns.
@@ -450,6 +454,8 @@ impl Context {
 
     /// Reset every piece of state a real `eglMakeCurrent` would reset.
     pub fn reset(&mut self, width: usize, height: usize) {
+        // Any un-composited device frame belongs to the framebuffer being replaced.
+        crate::vulkan::flush_pending(self);
         let diagnostics = self.diagnostics;
         *self = Self::new();
         self.diagnostics = diagnostics;

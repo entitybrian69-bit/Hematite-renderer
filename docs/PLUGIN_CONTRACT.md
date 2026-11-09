@@ -66,7 +66,7 @@ the built APK with androguard and asserts every value:
     <meta-data android:name="renderer"
                android:value="hematite:libhematite.so:libhematite.so"/>  <!-- id:gl:egl -->
     <meta-data android:name="des"
-               android:value="Hematite (bring-up: no GLSL, no presentation)"/>
+               android:value="Hematite (bring-up: fixed-function draws on Vulkan, no presentation)"/>
     <meta-data android:name="pojavEnv"
                android:value="POJAV_RENDERER=hematite:LIBGL_ES=2:LIBGL_MIPMAP=3:LIBGL_NOERROR=1"/>
   </application>

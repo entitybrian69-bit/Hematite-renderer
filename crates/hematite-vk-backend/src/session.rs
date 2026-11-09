@@ -523,21 +523,6 @@ impl Session {
         self.draws
     }
 
-    /// Read back `len` bytes of the uniform ring at `offset`.
-    ///
-    /// Only for tests and diagnostics: it reads the host mapping directly, so it shows what
-    /// the session wrote, not what the device saw.
-    pub fn uniform_bytes(&self, offset: u64, len: usize) -> Vec<u8> {
-        let start = offset as usize;
-        let end = (start + len).min(self.uniforms.capacity as usize);
-        if start >= end {
-            return Vec::new();
-        }
-        // SAFETY: the ring is HOST_VISIBLE, mapped for the session's lifetime, and this only
-        // reads a range inside the allocation.
-        unsafe { std::slice::from_raw_parts(self.uniforms.mapped.add(start), end - start) }.to_vec()
-    }
-
     /// Why the driver rejected this exact pipeline, if it did.
     ///
     /// Lets a caller report the real reason it fell back instead of guessing.
@@ -1397,16 +1382,18 @@ fn create_set_layout(device: &Device, sampler: bool) -> Result<vk::DescriptorSet
 }
 
 fn create_descriptor_pool(device: &Device) -> Result<vk::DescriptorPool, Error> {
+    // A session with a sampler allocates DESCRIPTOR_SETS of each layout. Both layouts bind one
+    // uniform block, so the pool needs twice as many uniform descriptors as it needs samplers,
+    // and twice as many sets as a plain session would use. Under-declaring a type is not a
+    // warning: allocation returns OUT_OF_POOL_MEMORY the moment a set needs it.
     let sizes = [
         vk::DescriptorPoolSize::default()
             .ty(vk::DescriptorType::UNIFORM_BUFFER)
-            .descriptor_count(DESCRIPTOR_SETS),
+            .descriptor_count(DESCRIPTOR_SETS * 2),
         vk::DescriptorPoolSize::default()
             .ty(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
             .descriptor_count(DESCRIPTOR_SETS),
     ];
-    // A session with a sampler allocates DESCRIPTOR_SETS of each layout, so the pool must
-    // hold twice that many sets.
     let info =
         vk::DescriptorPoolCreateInfo::default().max_sets(DESCRIPTOR_SETS * 2).pool_sizes(&sizes);
     // SAFETY: the pool sizes cover every set the session allocates.

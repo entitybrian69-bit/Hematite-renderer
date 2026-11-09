@@ -80,25 +80,37 @@ file repeats it so that a reader who opens only one document still sees it.
   hand-curated, not audited against real GL headers, so a wrong parameter type in the table
   would be reproduced faithfully by the compiler check that is supposed to catch drift.
 - **Android and backends:** the Vulkan backend renders offscreen only. There is no
-  swapchain, surface, `ANativeWindow`, presentation, texture upload, depth/stencil,
-  blending, MSAA, indexed draw, descriptor management, pipeline cache reuse, async
-  submission or command-buffer recycling. Every render allocates a fresh image, buffers,
-  render pass, pipeline, pool and fence, so the code path is a correctness harness and not
-  a frame loop. The plugin library exports 12 `hematite_*` functions and all 866
-  `gl*`/`egl*` symbols; the Vulkan path and the GL path do not talk to each other.
+  swapchain, surface, `ANativeWindow`, presentation, texture upload, depth/stencil
+  attachment, MSAA, indexed draw or multi-draw. `session.rs` *is* a frame loop: one device,
+  one persistent set of rings, pools and layouts, a pipeline cache keyed by
+  (stages, layout, state, topology), pipelines built on a worker thread, and a command
+  buffer per frame. `render.rs` beside it is still the one-shot correctness harness, and is
+  what the analytic pixel checks use. The plugin library exports 12 `hematite_*` functions
+  and all 866 `gl*`/`egl*` symbols, and the GL path now talks to the Vulkan path (below).
 - **Plugin discovery:** the APK now satisfies the v1 contract
   (`docs/PLUGIN_CONTRACT.md`), but the launcher has never been run against it, and the
   declared `org.hematite.renderer.PluginInfo` activity has no implementation (the APK
   contains no dex), so it exists only so `queryIntentActivities(ACTION_MAIN)` finds the
   package. The v2 `fclPlugin_V2` JSON contract is not implemented because it needs a
   `resources.arsc` string resource this encoder does not write.
-- **GL frontend:** the fixed-function subset renders on a **software rasterizer** on the
-  CPU. GLSL is not compiled — `glCompileShader` always fails with an explanatory log, so
-  `glLinkProgram`/`glUseProgram` cannot activate a shader pipeline and any real GLES2
-  application, Minecraft above all, will not run. No stencil buffer, no multisampling, no
-  renderbuffers/FBOs, no instancing, no `glMapBuffer`, no point sprites, no compressed
-  textures, one texture unit honoured, lines are always one pixel wide, and
+- **GL frontend:** GLSL *is* compiled — `glCompileShader` preprocesses, normalises to
+  Vulkan-GLSL 450 and produces SPIR-V through naga, and `glLinkProgram` records the
+  interface — but a compiled program is not yet *executed*: no draw uses the linked
+  program's SPIR-V, so shader-driven geometry is still not rendered. Draws go to the Vulkan
+  backend where that produces the same pixels (`crates/hematite-gl-frontend/src/vulkan.rs`
+  states the exact conditions) and to the CPU rasterizer otherwise; the rasterizer remains
+  the reference the routing tests compare against. Not implemented: stencil buffer,
+  multisampling, renderbuffers/FBOs, instancing, `glMapBuffer`, point sprites, compressed
+  textures, more than one honoured texture unit, lines wider than one pixel;
   `glPolygonOffset`/`glHint`/`glTexEnvi` are accepted and ignored.
+- **Vulkan routing scope (measured, not assumed):** blended, textured, depth-tested,
+  culled, sub-viewport, line, point and non-triangle draws all run on the CPU. A draw is
+  also rasterized on the CPU while its pipeline builds, which is the first frames of every
+  new state: the routing test needed five scenes of the same state before the device took
+  over on SwiftShader. Textures are not uploaded to the device at all, so a textured draw
+  has nowhere to go. One device frame is opened per run of compatible draws and read back
+  once, so the frontend composites through host memory — correct, but a real win needs the
+  framebuffer itself to be device-resident, which is framebuffer-object work.
 - **EGL:** `eglGetDisplay`/`eglChooseConfig`/`eglCreateContext` and friends are a software
   EGL. `eglCreateWindowSurface` accepts an `ANativeWindow*` but cannot query or lock it
   (that needs the NDK, which is never linked), so a window surface behaves like a pbuffer:
@@ -109,7 +121,22 @@ file repeats it so that a reader who opens only one document still sees it.
   calls itself a prototype) and androguard. No Play Store, no `bundletool`, no resources,
   no Java, no `uses-feature` declarations, and no installation test.
 
-### 2.3 Quirks database: nothing is confirmed
+### 2.3 Driver quirks measured on the pinned SwiftShader
+
+These are reproduced here, on `vk_swiftshader_icd.json` in `.cache/vulkan/driver`, and each
+one is a workaround in the code rather than a rumour. They are **not** evidence about any
+device GPU.
+
+| # | Behaviour | Consequence in the code |
+| --- | --- | --- |
+| Q-1 | `maxPushConstantsSize` is 128, and combining push constants with vertex input dies with SIGSEGV during execution | `session.rs` carries per-draw data in a uniform buffer and descriptor sets; there are no push-constant ranges anywhere |
+| Q-2 | A uniform block with an array member dies with SIGSEGV inside `vkCreateGraphicsPipelines`, after `vkCreateShaderModule` succeeded | The block is 32 scalar `vec4` members (`u0`…`u31`), 608 bytes, instead of one `vec4 u[32]` |
+| Q-3 | A standalone `VK_DESCRIPTOR_TYPE_SAMPLER` binding is rejected and the driver then dereferences the failed layout | Combined image samplers only, which is also what a translated `sampler2D` becomes |
+| Q-4 | Under-declaring a descriptor type makes allocation return `OUT_OF_POOL_MEMORY`, and over-allocating sets beyond `max_sets` dies with SIGSEGV instead of returning an error | The pool declares `DESCRIPTOR_SETS * 2` uniform descriptors, `DESCRIPTOR_SETS` samplers and `max_sets = DESCRIPTOR_SETS * 2`, and the session allocates exactly that |
+| Q-5 | A sampling pipeline builds and its draws record, but submitting a frame that sampled dies with SIGSEGV | Sampling sessions are exercised up to `record_draw` only; executing one is NOT-VERIFIED |
+| Q-6 | A header-only SPIR-V module is accepted by `vkCreateShaderModule` and the driver crashes later | Module acceptance proves nothing; every claim here is backed by a built pipeline and read-back pixels |
+
+### 2.4 Quirks database: nothing is confirmed
 
 The quirks structure is designed, but **no entry may be described as confirmed**, because
 confirming one requires reproducing a driver bug on that driver. `docs/RESEARCH.md` §5
@@ -117,11 +144,14 @@ lists the vendor *classes* that are likely to need entries; none of them is evid
 A future session must mark every entry it has not reproduced as unverified, and the file
 format must carry that flag per entry.
 
-### 2.4 Testing: what is missing entirely
+### 2.5 Testing: what is missing entirely
 
-- **82 unit tests pass** on native Linux and under WASI (14 IR, 16 config, 25 fixed-function
-  CPU, 10 cache, 7 xtask, 5 plugin, 3 vk-backend, 2 testharness). `./build.sh gpu`
-  additionally runs the real-driver suite against SwiftShader.
+- **141 tests pass** on native Linux (`./build.sh check`): 48 GLSL, 25 fixed-function,
+  16 config, 14 IR, 10 shader cache, 9 GL frontend, 9 xtask, 5 plugin, 3 vk-backend,
+  2 testharness. Six more are `#[ignore]`d because they need a driver, and `./build.sh gpu`
+  runs them against SwiftShader: the backend's session (pipeline cache, rings, async
+  builds, sampling pipeline), the frontend's routing comparison against the rasterizer, the
+  harness's compiled-GLSL-on-a-real-driver check, and the five analytic Vulkan checks.
 - The harness covers only: RGBA8 clear, one triangle list, smooth RGBA interpolation,
   repeated renders and a 1×1 target. Of the brief's list (triangle, textured quad,
   fixed-function scene, display lists, MRT, shadow map, compute, SSBO atomics, instancing,
@@ -134,7 +164,7 @@ format must carry that flag per entry.
   which is stronger than a stored image for interpolation but says nothing about how a real
   GPU rasterizes.
 
-### 2.5 Dependency posture is unproven
+### 2.6 Dependency posture is unproven
 
 `DECISIONS.md` justifies a dependency-light approach, and the CPU libraries have **zero**
 dependencies so they stay testable without a registry. The Vulkan backend uses the vendored
